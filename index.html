@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Bend coloured lasers with mirrors and splitters so every target gets exactly its colour. Free browser puzzle.">
+<title>Laser Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0}
+[hidden]{display:none!important}
+/* A dark optics bench so the beams glow. Single dark look on purpose. */
+:root{
+  --bg:#0b101b; --panel:#161e2e; --panel2:#1d2739; --ink:#e9eef7; --muted:#8a97ad; --line:#2a3550;
+  --accent:#ff5a6e; --good:#3fe08a; --gold:#ffc94a;
+  --f-display:"Fredoka","Avenir Next Rounded",system-ui,sans-serif;
+  --f-body:"Nunito",system-ui,sans-serif;
+  color-scheme:dark;
+}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px}
+.wrap{max-width:1000px;margin:0 auto;padding:18px 16px 36px;display:grid;gap:12px}
+.wrap>*{min-width:0}
+.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px}
+.title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;min-width:0}
+.back{color:var(--muted);text-decoration:none;font-family:var(--f-display);font-size:14px;width:100%}
+.back:hover{color:var(--accent)}
+h1{font-family:var(--f-display);font-weight:700;font-size:30px;margin:0;letter-spacing:-.01em}
+#lvname{font-family:var(--f-display);font-weight:500;font-size:18px;color:var(--muted)}
+.levels{display:flex;gap:5px;flex-wrap:wrap}
+button{font-family:var(--f-display);font-size:16px;font-weight:600;border:0;border-radius:10px;padding:9px 14px;background:var(--panel2);color:var(--ink);cursor:pointer;box-shadow:0 3px 0 #070a12;transition:transform .06s}
+button:hover{filter:brightness(1.15)}
+button:active{transform:translateY(2px);box-shadow:0 1px 0 #070a12}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.4;cursor:default;filter:none}
+button.primary{background:var(--accent);color:#fff;box-shadow:0 3px 0 #a3263a}
+.lv{width:42px;padding:5px 0 4px;display:grid;justify-items:center;line-height:1.1}
+.lv b{font-size:15px}.lv small{font-size:10px;letter-spacing:1px;color:var(--gold)}
+.lv.cur{background:var(--ink);color:var(--bg);box-shadow:0 3px 0 #6d7891}.lv.cur small{color:#c27d00}
+.stage{position:relative;justify-self:center;width:100%;border-radius:14px;overflow:hidden;border:2px solid var(--line);background:#0e1422}
+canvas#board{display:block;width:100%;height:auto;touch-action:none;cursor:pointer}
+.bar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
+.tray{display:flex;gap:8px;flex-wrap:wrap}
+.piece{display:flex;align-items:center;gap:8px;padding:7px 12px 7px 8px;touch-action:none}
+.piece svg{width:34px;height:34px}
+.piece span{display:grid;line-height:1.05;text-align:left}.piece small{font-size:12px;color:var(--muted);font-weight:500}
+.piece.sel{box-shadow:0 0 0 3px var(--accent) inset,0 3px 0 #070a12}
+#hint{color:var(--muted);margin:0;min-width:0;flex:1 1 260px}
+.mix{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:13px;flex-wrap:wrap}
+.mix i{display:inline-block;width:11px;height:11px;border-radius:50%;margin:0 2px;vertical-align:-1px}
+.stats{display:flex;gap:18px;font-family:var(--f-display);font-variant-numeric:tabular-nums}
+.stat{display:grid;line-height:1.1}.stat b{font-size:22px;font-weight:600}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.group{display:flex;gap:6px;align-items:center}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(5,8,15,.55);padding:16px}
+.res{background:var(--panel);border:2px solid var(--line);padding:20px 26px;border-radius:16px;text-align:center;display:grid;gap:12px;min-width:min(320px,100%)}
+.res h2{font-family:var(--f-display);font-size:28px;margin:0}
+.stars{display:flex;justify-content:center;gap:8px}
+.stars span{font-size:44px;line-height:1;color:var(--line)}
+.stars span.on{color:var(--gold);animation:pop .45s cubic-bezier(.3,1.6,.5,1) backwards}
+.goals{display:grid;gap:4px;text-align:left;font-variant-numeric:tabular-nums}
+.goals div{display:flex;gap:8px}.goals .ok{color:var(--good)}.goals .no{color:var(--muted)}
+.res .group{justify-content:center}
+@keyframes pop{0%{transform:scale(0) rotate(-40deg)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.stars span.on{animation:none}}
+@media (max-width:560px){h1{font-size:24px}.piece svg{width:28px;height:28px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="title"><a class="back" href="../index.html">← All games</a><h1>Laser Lab</h1><span id="lvname"></span></div>
+    <div class="levels" id="levels"></div>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="board" aria-label="Laser bench. Tap a free square to place the selected piece, tap a piece to turn it, drag it off the board to take it back."></canvas>
+    <div class="overlay" id="ov" hidden>
+      <div class="res">
+        <h2 id="ovTitle"></h2>
+        <div class="stars" id="ovStars"></div>
+        <div class="goals" id="ovGoals"></div>
+        <div class="group"><button id="ovRetry">Again</button><button class="primary" id="ovNext">Next</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar">
+    <div class="tray" id="tray"></div>
+    <div class="stats"><div class="stat"><b id="sUsed">0</b><span>pieces</span></div><div class="stat"><b id="sPar">0</b><span>fewest</span></div></div>
+  </div>
+  <div class="bar">
+    <p id="hint"></p>
+    <div class="group"><button id="bHint">Hint</button><button id="bUndo">Undo</button><button id="bReset">Reset</button></div>
+  </div>
+  <div class="mix" id="mix">Light adds up:
+    <span><i style="background:#ff4a5c"></i>+<i style="background:#38e07c"></i>= <i style="background:#ffe14a"></i></span>
+    <span><i style="background:#ff4a5c"></i>+<i style="background:#4a86ff"></i>= <i style="background:#e05cff"></i></span>
+    <span><i style="background:#38e07c"></i>+<i style="background:#4a86ff"></i>= <i style="background:#45e6ff"></i></span>
+    <span>all three = <i style="background:#fff"></i></span>
+  </div>
+</div>
+
+<script id="sim">
+/* ---------- beams (pure, no DOM) ---------- */
+// Directions 0 right, 1 down, 2 left, 3 up. Pieces: 1 mirror /, 2 mirror \, 3 splitter /, 4 splitter \.
+const DX=[1,0,-1,0],DY=[0,1,0,-1];
+const SL=[3,2,1,0],BS=[1,0,3,2];
+const KIND=p=>p<=2?'m':'s';            // mirror or splitter
+const TURN=p=>p===1||p===3?SL:BS;
+const FLIP={1:2,2:1,3:4,4:3};
+// Level: {w,h,map:[strings],em:[[x,y,dir,colour]],tg:[[x,y,mask]],cr:[[x,y]],fx:[[x,y,piece]],tray:{m,s},par,sol:[[x,y,piece]]}
+// map chars: '.' floor, '#' wall, ':' grate (beams pass, nothing can be placed)
+function build(L){
+  const n=L.w*L.h, tile=new Uint8Array(n); // 0 floor,1 wall,2 grate,3 emitter,4 target,5 crystal
+  const need=new Int8Array(n).fill(-1), fixed=new Uint8Array(n);
+  L.map.forEach((row,y)=>[...row].forEach((ch,x)=>{tile[y*L.w+x]=ch==='#'?1:ch===':'?2:0;}));
+  for(const [x,y] of L.em)tile[y*L.w+x]=3;
+  for(const [x,y,m] of L.tg){tile[y*L.w+x]=4;need[y*L.w+x]=m;}
+  for(const [x,y] of L.cr||[]){tile[y*L.w+x]=5;need[y*L.w+x]=0;}
+  for(const [x,y,p] of L.fx||[])fixed[y*L.w+x]=p;
+  return {L,w:L.w,h:L.h,n,tile,need,fixed};
+}
+const placeable=(B,i)=>B.tile[i]===0&&!B.fixed[i];
+// pieces: Uint8Array(n) of player pieces. Returns arriving colour masks, per-cell beam use, and segments to draw.
+function trace(B,pieces,wantSegs){
+  const {w,h,tile,fixed}=B, hit=new Uint8Array(B.n), seen=new Uint16Array(B.n), segs=wantSegs?[]:null;
+  const st=[];for(const [x,y,d,c] of B.L.em)st.push(x,y,d,c);
+  while(st.length){
+    let c=st.pop(),d=st.pop(),y=st.pop(),x=st.pop();
+    for(;;){
+      const nx=x+DX[d],ny=y+DY[d];
+      if(nx<0||ny<0||nx>=w||ny>=h){segs&&segs.push(x,y,d,c,.5);break;}
+      const i=ny*w+nx,t=tile[i];
+      if(t===1||t>=3){hit[i]|=1<<c;segs&&segs.push(x,y,d,c,t===1?.5:.68);break;}
+      const bit=1<<(d*3+c);
+      segs&&segs.push(x,y,d,c,1);
+      if(seen[i]&bit)break;
+      seen[i]|=bit;x=nx;y=ny;
+      const p=pieces[i]||fixed[i];
+      if(p===1)d=SL[d];else if(p===2)d=BS[d];
+      else if(p===3)st.push(x,y,SL[d],c);else if(p===4)st.push(x,y,BS[d],c);
+    }
+  }
+  return {hit,seen,segs};
+}
+function solved(B,hit){for(let i=0;i<B.n;i++)if(B.need[i]>=0&&hit[i]!==B.need[i])return false;return true;}
+</script>
+<script>
+/* ---------- levels: generated by a solver-checked generator; par = fewest pieces, sol = one shortest solution ---------- */
+const LEVELS=[
+{"name":"First light","w":6,"h":5,"map":["..#...","......","......","......","......"],"em":[[5,2,2,0]],"tg":[[4,4,1]],"cr":[],"fx":[],"tray":{"m":1,"s":0},"par":1,"sol":[[4,2,1]]},
+{"name":"Dog leg","w":7,"h":5,"map":[".......","......#","#.....#",".......","......."],"em":[[2,4,3,0]],"tg":[[6,4,1]],"cr":[],"fx":[],"tray":{"m":2,"s":0},"par":2,"sol":[[2,3,1],[6,3,2]]},
+{"name":"Don't touch","w":8,"h":6,"map":[".......#","....#.##","........",".......#",".#..#...","..#..#.."],"em":[[1,3,3,0]],"tg":[[1,5,1]],"cr":[[1,0]],"fx":[],"tray":{"m":4,"s":0},"par":3,"sol":[[0,1,1],[1,1,2],[0,5,2]]},
+{"name":"Half silvered","w":7,"h":6,"map":["...#...",".......",".......",".#....#",".......","......#"],"em":[[0,2,0,0]],"tg":[[4,0,1],[5,0,1]],"cr":[],"fx":[],"tray":{"m":2,"s":1},"par":2,"sol":[[4,2,3],[5,2,1]]},
+{"name":"Fork","w":8,"h":6,"map":[".......#","........","........","........","..#..#..",".......#"],"em":[[7,3,2,0]],"tg":[[0,5,1],[7,4,1]],"cr":[],"fx":[],"tray":{"m":3,"s":1},"par":3,"sol":[[0,3,1],[6,3,3],[6,4,2]]},
+{"name":"Two colours","w":8,"h":6,"map":["........",".#......","........","#......#","........",".......#"],"em":[[6,4,2,0],[0,2,0,2]],"tg":[[4,0,1],[2,0,4]],"cr":[],"fx":[],"tray":{"m":3,"s":0},"par":2,"sol":[[2,2,1],[4,4,2]]},
+{"name":"Magenta","w":8,"h":6,"map":["....#...","....#.#.",".#...#..","...#....","#.......","........"],"em":[[7,3,2,0],[4,4,0,2]],"tg":[[7,5,5]],"cr":[],"fx":[],"tray":{"m":4,"s":0},"par":3,"sol":[[5,3,1],[7,4,2],[5,5,2]]},
+{"name":"Yellow fork","w":9,"h":6,"map":[".........",".#.......",".........",".........",".....##..","....#...."],"em":[[4,2,2,0],[7,3,2,1]],"tg":[[0,5,3],[1,5,3]],"cr":[[0,2]],"fx":[],"tray":{"m":3,"s":1},"par":3,"sol":[[1,2,1],[0,3,1],[1,3,3]]},
+{"name":"Grates","w":9,"h":7,"map":["....#....","....#....",":...#....","...:.....","....:#...","..#.:#.##","........."],"em":[[7,1,1,0],[3,4,1,1],[1,0,1,2]],"tg":[[0,6,6],[8,3,1]],"cr":[],"fx":[],"tray":{"m":3,"s":1},"par":3,"sol":[[7,3,2],[1,6,3],[3,6,1]]},
+{"name":"Bolted","w":9,"h":7,"map":[".........",".........","..#.....#",".........","#.###....","#.....#..","......#.."],"em":[[2,1,0,0],[3,3,3,2]],"tg":[[8,5,5],[5,0,5]],"cr":[[8,1]],"fx":[[5,1,3]],"tray":{"m":3,"s":1},"par":3,"sol":[[3,1,3],[7,1,2],[7,5,2]]},
+{"name":"White light","w":8,"h":7,"map":["##......","........","..#...#.","........","#.....#.","..#.....","##.....#"],"em":[[0,1,0,0],[4,6,3,1],[7,0,1,2]],"tg":[[4,3,7],[7,5,6]],"cr":[[2,1],[5,6]],"fx":[],"tray":{"m":3,"s":2},"par":4,"sol":[[1,1,2],[1,3,2],[7,3,3],[4,5,3]]},
+{"name":"Crossfire","w":10,"h":7,"map":["::...#....",".........:","..#.......","..........","...:..:...",".:........",".:.#......"],"em":[[4,5,0,0],[1,3,0,1],[2,6,3,2]],"tg":[[9,4,4],[3,5,6],[5,6,1]],"cr":[[7,5],[4,3]],"fx":[],"tray":{"m":4,"s":1},"par":4,"sol":[[3,3,2],[2,4,1],[2,5,3],[5,5,2]]},
+{"name":"Prism hall","w":10,"h":7,"map":["....:...#:","..........",".......#..","..........","#.........","#..#......","...#...#.."],"em":[[7,0,2,0],[5,1,1,1],[3,2,2,2]],"tg":[[6,6,2],[0,0,5],[2,6,1]],"cr":[[5,5],[5,6]],"fx":[],"tray":{"m":4,"s":1},"par":4,"sol":[[2,0,3],[0,2,2],[5,2,2],[6,2,2]]}
+];
+const TIPS=[
+  'Tap a free square to place a mirror, tap the mirror to turn it. Steer the red beam into the target.',
+  'Two mirrors this time. Drag a piece to move it, or drag it off the board to take it back.',
+  'Crystals must stay dark. A beam on a crystal ruins it.',
+  'A splitter lets half the beam through and turns the other half.',
+  'One beam, two targets. Spare pieces are fine, but the fewest earns three stars.',
+  'Each target wants its own colour, exactly. A wrong colour mixed in does not count.',
+  'Beams add up where they meet: red plus blue makes magenta.',
+  'Red plus green makes yellow.',
+  'Nothing can stand on a grate, but beams cross it.',
+  'Bolted pieces are fixed. Work around them.',
+  'White needs red, green and blue at once.',
+  '',''
+];
+
+/* ---------- state ---------- */
+const $=s=>document.querySelector(s);
+const cv=$('#board'),g=cv.getContext('2d'),DPR=Math.min(2,window.devicePixelRatio||1),S=72;
+const RGB=['#ff4a5c','#38e07c','#4a86ff'];
+const MIXC={1:'#ff4a5c',2:'#38e07c',4:'#4a86ff',3:'#ffe14a',5:'#e05cff',6:'#45e6ff',7:'#ffffff'};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let save={stars:{}};try{save=Object.assign(save,JSON.parse(localStorage.getItem('laserlab-save')||'{}'));}catch(e){}
+function persist(){try{localStorage.setItem('laserlab-save',JSON.stringify(save));}catch(e){}}
+let li=0,B,L,P,hist=[],res,won=false,sel=1,lastTurn={m:1,s:3},hover=-1,drag=null,hintCell=null,hintT=0,winT=0;
+
+function load(i){
+  li=i;L=LEVELS[i];B=build(L);P=new Uint8Array(B.n);hist=[];won=false;hintCell=null;drag=null;
+  cv.width=L.w*S*DPR;cv.height=L.h*S*DPR;
+  $('#stage').style.maxWidth=`min(100%, ${(L.w/L.h*62).toFixed(2)}vh)`;
+  $('#lvname').textContent=`${i+1}. ${L.name}`;
+  $('#hint').textContent=TIPS[i]||'Every target lit with exactly its colour, every crystal dark.';
+  $('#mix').hidden=L.em.length<2;$('#ov').hidden=true;
+  sel=L.tray.m?1:3;update();levelButtons();
+}
+const used=k=>P.reduce((a,p)=>a+(p&&(k==='m'?p<=2:p>2)?1:0),0);
+const left=k=>L.tray[k]-used(k);
+const kindOf=p=>p<=2?'m':'s';
+function update(){
+  res=trace(B,P,true);
+  const n=P.reduce((a,p)=>a+(p?1:0),0);
+  $('#sUsed').textContent=n;$('#sPar').textContent=L.par;
+  renderTray();
+  if(!won&&solved(B,res.hit)){won=true;winT=performance.now();setTimeout(showWin,reduce?150:750);}
+}
+function commit(fn){hist.push(P.slice());fn();hintCell=null;update();}
+
+/* ---------- tray ---------- */
+const ICON={m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
+  s:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#7fe3ff" stroke-opacity=".45" stroke-width="7" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#d8f7ff" stroke-width="1.8" stroke-linecap="round"/></svg>'};
+function renderTray(){
+  const t=$('#tray');t.innerHTML='';
+  for(const k of ['m','s']){
+    if(!L.tray[k])continue;
+    const b=document.createElement('button');b.className='piece'+((sel<=2)===(k==='m')?' sel':'');
+    b.innerHTML=`${ICON[k]}<span>${k==='m'?'Mirror':'Splitter'}<small>${left(k)} left</small></span>`;
+    b.disabled=left(k)<=0&&!won;
+    b.onpointerdown=e=>{if(won)return;sel=k==='m'?lastTurn.m:lastTurn.s;renderTray();if(left(k)>0)startDrag(e,{from:'tray',p:sel});};
+    t.appendChild(b);
+  }
+}
+function levelButtons(){
+  const c=$('#levels');c.innerHTML='';
+  LEVELS.forEach((_,i)=>{const b=document.createElement('button');const s=save.stars[i]||0;
+    b.className='lv'+(i===li?' cur':'');b.innerHTML=`<b>${i+1}</b><small>${'★'.repeat(s)}${'☆'.repeat(3-s)}</small>`;
+    b.title=LEVELS[i].name;b.onclick=()=>load(i);c.appendChild(b);});
+}
+
+/* ---------- input ---------- */
+function cellAt(e){
+  const r=cv.getBoundingClientRect();const x=Math.floor((e.clientX-r.left)/r.width*L.w),y=Math.floor((e.clientY-r.top)/r.height*L.h);
+  return x<0||y<0||x>=L.w||y>=L.h?-1:y*L.w+x;
+}
+function startDrag(e,d){drag=Object.assign(d,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,moved:false});e.preventDefault();}
+addEventListener('pointermove',e=>{
+  if(drag){drag.x=e.clientX;drag.y=e.clientY;if(Math.hypot(drag.x-drag.x0,drag.y-drag.y0)>8)drag.moved=true;}
+  hover=e.target===cv||drag?cellAt(e):-1;
+});
+addEventListener('pointerup',e=>{
+  if(!drag)return;const d=drag;drag=null;const c=cellAt(e);
+  if(d.from==='board'){
+    if(!d.moved){const p=P[d.cell];commit(()=>{P[d.cell]=FLIP[p];lastTurn[kindOf(p)]=FLIP[p];});return;}
+    if(c<0)commit(()=>{P[d.cell]=0;});
+    else if(c!==d.cell&&placeable(B,c)&&!P[c])commit(()=>{P[c]=P[d.cell];P[d.cell]=0;});
+  }else if(d.from==='tray'&&d.moved&&c>=0&&placeable(B,c)&&!P[c])commit(()=>{P[c]=d.p;});
+});
+cv.addEventListener('pointerdown',e=>{
+  if(won||e.button===2)return;const c=cellAt(e);if(c<0)return;
+  if(P[c]){startDrag(e,{from:'board',cell:c});return;}
+  if(placeable(B,c)&&left(kindOf(sel))>0)commit(()=>{P[c]=sel;});
+  else if(placeable(B,c)){const k=kindOf(sel)==='m'?'s':'m';if(L.tray[k]&&left(k)>0){sel=lastTurn[k];commit(()=>{P[c]=sel;});}}
+});
+cv.addEventListener('pointerleave',()=>{if(!drag)hover=-1;});
+cv.addEventListener('contextmenu',e=>{e.preventDefault();const c=cellAt(e);if(!won&&c>=0&&P[c])commit(()=>{P[c]=0;});});
+addEventListener('keydown',e=>{
+  if(e.repeat)return;const k=e.key.toLowerCase();
+  if((e.metaKey||e.ctrlKey)&&k==='z'){e.preventDefault();undo();return;}
+  if(e.metaKey||e.ctrlKey||won)return;
+  if(k==='z')undo();else if(k==='h')hint();
+  else if(k==='1'&&L.tray.m){sel=lastTurn.m;renderTray();}else if(k==='2'&&L.tray.s){sel=lastTurn.s;renderTray();}
+  else if(hover>=0&&P[hover]&&(k==='r'||k===' ')){e.preventDefault();const p=P[hover];commit(()=>{P[hover]=FLIP[p];});}
+  else if(hover>=0&&P[hover]&&(k==='backspace'||k==='delete'))commit(()=>{P[hover]=0;});
+});
+function undo(){if(won||!hist.length)return;P=hist.pop();hintCell=null;update();}
+function hint(){
+  if(won)return;
+  const sol=new Map(L.sol.map(([x,y,p])=>[y*L.w+x,p]));
+  for(let i=0;i<B.n;i++)if(P[i]&&!sol.has(i)){hintCell={i,p:0};$('#hint').textContent='This piece is not in the shortest route. Take it back.';hintT=performance.now();return;}
+  for(const [i,p] of sol)if(P[i]!==p){hintCell={i,p};hintT=performance.now();
+    $('#hint').textContent=P[i]?'Turn this piece.':`Try a ${p<=2?'mirror':'splitter'} here, turned like this.`;return;}
+}
+$('#bUndo').onclick=undo;$('#bHint').onclick=hint;
+$('#bReset').onclick=()=>{if(!won&&P.some(Boolean))commit(()=>P.fill(0));};
+$('#ovRetry').onclick=()=>load(li);$('#ovNext').onclick=()=>load(Math.min(LEVELS.length-1,li+1));
+
+function showWin(){
+  const n=P.reduce((a,p)=>a+(p?1:0),0),s=1+(n<=L.par+1)+(n<=L.par);
+  save.stars[li]=Math.max(save.stars[li]||0,s);persist();levelButtons();
+  $('#ovTitle').textContent=li===LEVELS.length-1?'Lab complete!':['Lit!','Nice beam!','Perfect optics!'][s-1];
+  $('#ovStars').innerHTML=[0,1,2].map(k=>`<span class="${k<s?'on':''}" style="animation-delay:${k*.15}s">★</span>`).join('');
+  const goals=[['Every target lit',true],[`${L.par+1} pieces or fewer`,n<=L.par+1],[`${L.par} pieces (fewest)`,n<=L.par]];
+  $('#ovGoals').innerHTML=goals.map(([t,ok])=>`<div class="${ok?'ok':'no'}">${ok?'✓':'○'} ${t}</div>`).join('')+`<div class="no">You used ${n}.</div>`;
+  $('#ovNext').hidden=li>=LEVELS.length-1;$('#ov').hidden=false;renderTray();
+}
+
+/* ---------- drawing ---------- */
+function rr(x,y,w,h,r){g.beginPath();g.roundRect(x,y,w,h,r);}
+function drawPiece(x,y,p,alpha,bolted){
+  const a=.2*S,b=.8*S,cx=x*S,cy=y*S;
+  const [x1,y1,x2,y2]=p===1||p===3?[cx+a,cy+b,cx+b,cy+a]:[cx+a,cy+a,cx+b,cy+b];
+  g.save();g.globalAlpha=alpha;
+  if(bolted){rr(cx+6,cy+6,S-12,S-12,10);g.fillStyle='#252f45';g.fill();g.fillStyle='#55617a';
+    for(const [u,v] of [[13,13],[S-13,13],[13,S-13],[S-13,S-13]]){g.beginPath();g.arc(cx+u,cy+v,3,0,7);g.fill();}}
+  g.lineCap='round';
+  if(p<=2){
+    g.strokeStyle='#5d6a85';g.lineWidth=9;g.beginPath();g.moveTo(x1+2,y1+3);g.lineTo(x2+2,y2+3);g.stroke();
+    g.strokeStyle='#e4ecf8';g.lineWidth=7;g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();
+    g.strokeStyle='#ffffff';g.lineWidth=2;g.beginPath();g.moveTo(x1+(x2-x1)*.15,y1+(y2-y1)*.15);g.lineTo(x1+(x2-x1)*.45,y1+(y2-y1)*.45);g.stroke();
+  }else{
+    g.strokeStyle='rgba(127,227,255,.35)';g.lineWidth=11;g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();
+    g.strokeStyle='#d8f7ff';g.lineWidth=2.2;g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();
+  }
+  g.restore();
+}
+function render(now){
+  const W=L.w*S,H=L.h*S;g.setTransform(DPR,0,0,DPR,0,0);
+  g.fillStyle='#0e1422';g.fillRect(0,0,W,H);
+  // floor, grates, walls
+  for(let y=0;y<L.h;y++)for(let x=0;x<L.w;x++){
+    const t=B.tile[y*L.w+x],X=x*S,Y=y*S;
+    if(t===1){rr(X+2,Y+2,S-4,S-4,9);g.fillStyle='#2b3651';g.fill();rr(X+2,Y+2,S-4,S-10,9);g.fillStyle='#36436a';g.fill();continue;}
+    rr(X+2,Y+2,S-4,S-4,8);g.fillStyle='#141c2c';g.fill();
+    if(t===2){g.save();rr(X+2,Y+2,S-4,S-4,8);g.clip();g.strokeStyle='#26324b';g.lineWidth=3;
+      for(let k=-S;k<S;k+=12){g.beginPath();g.moveTo(X+k,Y+S);g.lineTo(X+k+S,Y);g.stroke();}g.restore();}
+  }
+  // hover target
+  const tgtCell=drag&&drag.moved?hover:(!drag&&hover>=0&&!won&&!P[hover]&&placeable(B,hover)?hover:-1);
+  if(tgtCell>=0&&placeable(B,tgtCell)&&(!P[tgtCell]||drag&&drag.cell===tgtCell)){const X=tgtCell%L.w*S,Y=(tgtCell/L.w|0)*S;rr(X+3,Y+3,S-6,S-6,8);g.strokeStyle='rgba(233,238,247,.35)';g.lineWidth=2;g.stroke();}
+  // beams (additive so overlapping colours mix)
+  const segs=res.segs,t=now/1000;
+  g.save();g.globalCompositeOperation='lighter';g.lineCap='round';
+  for(const [w,al] of [[18,.15],[7,.55],[2.6,.95]]){
+    g.lineWidth=w;
+    for(let j=0;j<segs.length;j+=5){
+      const x=segs[j],y=segs[j+1],d=segs[j+2],c=segs[j+3],len=segs[j+4];
+      const sx=(x+.5)*S,sy=(y+.5)*S;
+      g.strokeStyle=w<3?['#ffb3bb','#b4ffd1','#b8d0ff'][c]:RGB[c];
+      g.globalAlpha=al*(reduce||w<3?1:.85+.15*Math.sin(t*9+x*1.7+y*2.3));
+      g.beginPath();g.moveTo(sx,sy);g.lineTo(sx+DX[d]*len*S,sy+DY[d]*len*S);g.stroke();
+    }
+  }
+  g.restore();
+  // pieces
+  for(let i=0;i<B.n;i++){
+    const x=i%L.w,y=i/L.w|0;
+    if(B.fixed[i])drawPiece(x,y,B.fixed[i],1,true);
+    if(P[i])drawPiece(x,y,P[i],drag&&drag.from==='board'&&drag.cell===i&&drag.moved?.3:1,false);
+  }
+  // emitters
+  for(const [x,y,d,c] of L.em){
+    const cx=(x+.5)*S,cy=(y+.5)*S;g.save();g.translate(cx,cy);g.rotate(d*Math.PI/2);
+    rr(-S*.36,-S*.3,S*.62,S*.6,10);g.fillStyle='#3a4663';g.fill();rr(-S*.36,-S*.3,S*.62,S*.2,10);g.fillStyle='#47557a';g.fill();
+    g.fillStyle='#232c40';g.fillRect(S*.2,-S*.13,S*.2,S*.26);
+    g.shadowColor=RGB[c];g.shadowBlur=14;g.fillStyle=RGB[c];g.beginPath();g.arc(-S*.05,0,S*.13,0,7);g.fill();g.restore();
+  }
+  // targets
+  for(const [x,y,m] of L.tg){
+    const i=y*L.w+x,h=res.hit[i],ok=h===m,cx=(x+.5)*S,cy=(y+.5)*S,col=MIXC[m];
+    g.save();
+    g.beginPath();g.arc(cx,cy,S*.33,0,7);g.fillStyle='#1b2335';g.fill();
+    if(ok){g.shadowColor=col;g.shadowBlur=22+(reduce?0:6*Math.sin(t*4));}
+    g.lineWidth=7;g.strokeStyle=col;g.globalAlpha=ok?1:.55;g.beginPath();g.arc(cx,cy,S*.3,0,7);g.stroke();
+    g.shadowBlur=0;g.globalAlpha=1;
+    if(h){g.fillStyle=MIXC[h];g.globalAlpha=ok?1:.8;g.beginPath();g.arc(cx,cy,S*.17,0,7);g.fill();g.globalAlpha=1;}
+    if(h&~m){g.strokeStyle='#0e1422';g.lineWidth=3.5;g.beginPath();g.moveTo(cx-6,cy-6);g.lineTo(cx+6,cy+6);g.moveTo(cx+6,cy-6);g.lineTo(cx-6,cy+6);g.stroke();}
+    if(m&(m-1)){const parts=[0,1,2].filter(k=>m>>k&1);parts.forEach((k,j)=>{g.fillStyle=RGB[k];g.beginPath();g.arc(cx+(j-(parts.length-1)/2)*11,cy+S*.44,4,0,7);g.fill();});}
+    g.restore();
+  }
+  // crystals
+  for(const [x,y] of L.cr||[]){
+    const i=y*L.w+x,h=res.hit[i],cx=(x+.5)*S,cy=(y+.5)*S,r=S*.3,j=h&&!reduce?Math.sin(t*40)*1.5:0;
+    g.save();g.translate(cx+j,cy);
+    g.beginPath();g.moveTo(0,-r);g.lineTo(r*.75,0);g.lineTo(0,r);g.lineTo(-r*.75,0);g.closePath();
+    g.fillStyle=h?'#5a1a26':'#b9b2e8';g.fill();g.strokeStyle=h?'#ff4a5c':'#ece8ff';g.lineWidth=2;g.stroke();
+    g.beginPath();g.moveTo(-r*.75,0);g.lineTo(r*.75,0);g.moveTo(0,-r);g.lineTo(0,r);g.strokeStyle=h?'rgba(255,74,92,.7)':'rgba(255,255,255,.5)';g.lineWidth=1;g.stroke();
+    if(h){g.strokeStyle='#ffd0d6';g.lineWidth=1.6;g.beginPath();g.moveTo(-4,-r*.6);g.lineTo(3,-4);g.lineTo(-3,4);g.lineTo(4,r*.6);g.stroke();}
+    g.restore();
+  }
+  // hint ghost
+  if(hintCell&&now-hintT<4000){
+    const x=hintCell.i%L.w,y=hintCell.i/L.w|0,pulse=.5+.5*Math.sin((now-hintT)/160);
+    rr(x*S+3,y*S+3,S-6,S-6,9);g.strokeStyle=`rgba(255,201,74,${.5+.5*pulse})`;g.lineWidth=3;g.stroke();
+    if(hintCell.p)drawPiece(x,y,hintCell.p,.35+.3*pulse,false);
+  }
+  // dragged piece follows the pointer
+  if(drag&&drag.moved){
+    const r=cv.getBoundingClientRect(),p=drag.from==='board'?P[drag.cell]:drag.p;
+    const fx=(drag.x-r.left)/r.width*L.w-.5,fy=(drag.y-r.top)/r.height*L.h-.5;
+    if(fx>-1&&fy>-1&&fx<L.w&&fy<L.h)drawPiece(fx,fy,p,.85,false);
+  }
+  // win sweep
+  if(won&&!reduce){const k=(now-winT)/700;if(k<1){g.fillStyle=`rgba(255,255,255,${.18*(1-k)})`;g.fillRect(0,0,W,H);}}
+  requestAnimationFrame(render);
+}
+load(0);requestAnimationFrame(render);
+</script>
+</body>
+</html>
