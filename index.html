@@ -259,7 +259,7 @@ const TIPS=[
   '',''
 ];
 Object.assign(TIPS,{
-  39:'New piece: the prism. Glass bends blue light more than red, so a beam crossing a wedge fans out: red toward the thin red tip, blue toward the thick blue end, green straight on. All four wedges point the same way round, so red always turns left and blue right. Three colours that leave on one line merge into white.',
+  39:'New piece: the prism. Glass bends blue light more than red, so a beam fans out: red toward the tip, blue toward the base, green straight on. The prism turns its tip to the left of the incoming beam, so red always turns left and blue right. Three colours that leave on one line merge into white.',
   43:'Coloured glass lets only its own colour through.',
   47:'A colour shifter repaints any beam that passes through it.',
   51:'A relay crystal lit with its own colour shines that colour out of all four sides. Relays can light each other.',
@@ -299,7 +299,7 @@ function update(){
 function commit(fn){hist.push(P.slice());fn();hintCell=null;update();}
 
 /* ---------- tray ---------- */
-const ICON={p:'<svg viewBox="0 0 34 34"><defs><linearGradient id="pw" x1="0" y1="0" x2="0" y2="1"><stop offset=".4" stop-color="#ff4a5c"/><stop offset=".6" stop-color="#38e07c"/><stop offset=".8" stop-color="#4a86ff"/></linearGradient></defs><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M4 18 H17" stroke="#fff" stroke-width="2.2"/><path d="M17 18 V5" stroke="#ff4a5c" stroke-width="2.2"/><path d="M17 18 H30" stroke="#38e07c" stroke-width="2.2"/><path d="M17 18 V31" stroke="#4a86ff" stroke-width="2.2"/><path d="M9 7 V26 H15 Z" fill="url(#pw)" fill-opacity=".85" stroke="#e8f1ff" stroke-width="1.6" stroke-linejoin="round"/></svg>',m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
+const ICON={p:'<svg viewBox="0 0 34 34"><defs><linearGradient id="pw" x1="0" y1="0" x2="0" y2="1"><stop offset=".15" stop-color="#ff4a5c"/><stop offset=".55" stop-color="#38e07c"/><stop offset=".95" stop-color="#4a86ff"/></linearGradient></defs><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M4 18 H17" stroke="#fff" stroke-width="2.2"/><path d="M17 18 V5" stroke="#ff4a5c" stroke-width="2.2"/><path d="M17 18 H30" stroke="#38e07c" stroke-width="2.2"/><path d="M17 18 V31" stroke="#4a86ff" stroke-width="2.2"/><path d="M17 8 L25.5 24 H8.5 Z" fill="url(#pw)" fill-opacity=".6" stroke="#eef4ff" stroke-width="1.8" stroke-linejoin="round"/></svg>',m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
   s:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#7fe3ff" stroke-opacity=".45" stroke-width="7" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#d8f7ff" stroke-width="1.8" stroke-linecap="round"/></svg>'};
 function renderTray(){
   const t=$('#tray');t.innerHTML='';
@@ -386,16 +386,20 @@ function drawPiece(x,y,p,alpha,bolted,lit=0){
     for(const [u,v] of [[13,13],[S-13,13],[13,S-13],[S-13,S-13]]){g.beginPath();g.arc(cx+u,cy+v,3,0,7);g.fill();}}
   g.lineCap='round';
   if(p===5){
-    // Four glass wedges in a pinwheel, each shaded red at its thin tip and blue at its thick end.
-    // A beam crosses the wedge on the side it comes in from: glass bends blue more than red, so red
-    // leans toward the tip and blue toward the thick end. Every wedge has its tip on the beam's left.
-    const r=S*.36;g.translate(cx+S/2,cy+S/2);g.lineJoin='round';
-    for(let k=0;k<4;k++){g.save();g.rotate(k*Math.PI/2);
-      const on=lit>>k&1,gr=g.createLinearGradient(0,-r*.95,0,r*.55);
-      gr.addColorStop(.4,'#ff4a5c');gr.addColorStop(.6,'#38e07c');gr.addColorStop(.8,'#4a86ff');
-      g.beginPath();g.moveTo(-r,-r*.95);g.lineTo(-r,r*.55);g.lineTo(-r*.3,r*.55);g.closePath();
-      g.globalAlpha=alpha*(on?.95:.6);g.fillStyle=gr;g.fill();
-      g.globalAlpha=alpha;g.strokeStyle=on?'#ffffff':'#c9d6ee';g.lineWidth=on?2.2:1.6;g.stroke();g.restore();}
+    // A glass prism, shaded red at its tip and blue at its base. Glass bends blue more than red, so a beam
+    // fans out: red toward the tip, blue toward the base, green straight on. The prism turns to face the
+    // incoming beam with its tip on the beam's left, which is why red turns left and blue right.
+    const d=lit?Math.log2(lit&-lit):0,r=S*.33;
+    g.translate(cx+S/2,cy+S/2);g.rotate(d*Math.PI/2);g.lineJoin='round';
+    const tri=()=>{g.beginPath();g.moveTo(0,-r);g.lineTo(r*.95,r*.68);g.lineTo(-r*.95,r*.68);g.closePath();};
+    const gr=g.createLinearGradient(0,-r,0,r*.68);
+    gr.addColorStop(.15,'#ff4a5c');gr.addColorStop(.55,'#38e07c');gr.addColorStop(.95,'#4a86ff');
+    if(lit){g.shadowColor='#cfe3ff';g.shadowBlur=16;}
+    tri();g.fillStyle='rgba(14,20,34,.6)';g.fill();g.shadowBlur=0;
+    tri();g.globalAlpha=alpha*(lit?.8:.5);g.fillStyle=gr;g.fill();g.globalAlpha=alpha;
+    tri();g.strokeStyle='#eef4ff';g.lineWidth=2.6;g.stroke();
+    // glint along the left face
+    g.strokeStyle='rgba(255,255,255,.75)';g.lineWidth=1.6;g.beginPath();g.moveTo(-r*.12,-r*.66);g.lineTo(-r*.55,r*.18);g.stroke();
   }else if(p<=2){
     g.strokeStyle='#5d6a85';g.lineWidth=9;g.beginPath();g.moveTo(x1+2,y1+3);g.lineTo(x2+2,y2+3);g.stroke();
     g.strokeStyle='#e4ecf8';g.lineWidth=7;g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();
