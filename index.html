@@ -103,52 +103,82 @@ canvas#board{display:block;width:100%;height:auto;touch-action:none;cursor:point
 
 <script id="sim">
 /* ---------- beams (pure, no DOM) ---------- */
-// Directions 0 right, 1 down, 2 left, 3 up. Pieces: 1 mirror /, 2 mirror \, 3 splitter /, 4 splitter \.
+// Directions 0 right, 1 down, 2 left, 3 up. Pieces: 1 mirror /, 2 mirror \, 3 splitter /, 4 splitter \, 5 prism.
 const DX=[1,0,-1,0],DY=[0,1,0,-1];
 const SL=[3,2,1,0],BS=[1,0,3,2];
-const KIND=p=>p<=2?'m':'s';            // mirror or splitter
-const TURN=p=>p===1||p===3?SL:BS;
-const FLIP={1:2,2:1,3:4,4:3};
-// Level: {w,h,map:[strings],em:[[x,y,dir,colour]],tg:[[x,y,mask]],cr:[[x,y]],fx:[[x,y,piece]],tray:{m,s},par,sol:[[x,y,piece]]}
+const KIND=p=>p<=2?'m':p<=4?'s':'p';   // mirror, splitter or prism
+const FLIP={1:2,2:1,3:4,4:3,5:5};
+// A prism bends each colour its own way: red turns left, green goes straight, blue turns right.
+// So white splits into three beams, and three beams aimed right merge back into white.
+const PRISM=(d,c)=>c===0?(d+3)%4:c===2?(d+1)%4:d;
+// Level: {w,h,map,em:[[x,y,dir,c]],tg:[[x,y,mask]],cr:[[x,y]],fx:[[x,y,piece]],tray:{m,s,p},par,sol,
+//   rl:[[x,y,c]] relay crystals, pr:[[x,y]] fixed prisms, gl:[[x,y,c]] coloured glass, cs:[[x,y,c]] colour shifters,
+//   sw:[[x,y,c,id]] switch crystals, gt:[[x,y,id]] gates}
 // map chars: '.' floor, '#' wall, ':' grate (beams pass, nothing can be placed)
+// tiles: 0 floor 1 wall 2 grate 3 emitter 4 target 5 fragile crystal 6 relay 7 glass 8 shifter 9 switch 10 gate 11 prism
 function build(L){
-  const n=L.w*L.h, tile=new Uint8Array(n); // 0 floor,1 wall,2 grate,3 emitter,4 target,5 crystal
+  const n=L.w*L.h, tile=new Uint8Array(n), col=new Int8Array(n).fill(-1), gid=new Int8Array(n).fill(-1);
   const need=new Int8Array(n).fill(-1), fixed=new Uint8Array(n);
   L.map.forEach((row,y)=>[...row].forEach((ch,x)=>{tile[y*L.w+x]=ch==='#'?1:ch===':'?2:0;}));
   for(const [x,y] of L.em)tile[y*L.w+x]=3;
   for(const [x,y,m] of L.tg){tile[y*L.w+x]=4;need[y*L.w+x]=m;}
   for(const [x,y] of L.cr||[]){tile[y*L.w+x]=5;need[y*L.w+x]=0;}
+  for(const [x,y,c] of L.rl||[]){tile[y*L.w+x]=6;col[y*L.w+x]=c;}
+  for(const [x,y,c] of L.gl||[]){tile[y*L.w+x]=7;col[y*L.w+x]=c;}
+  for(const [x,y,c] of L.cs||[]){tile[y*L.w+x]=8;col[y*L.w+x]=c;}
+  for(const [x,y,c,id] of L.sw||[]){tile[y*L.w+x]=9;col[y*L.w+x]=c;gid[y*L.w+x]=id;}
+  for(const [x,y,id] of L.gt||[]){tile[y*L.w+x]=10;gid[y*L.w+x]=id;}
+  for(const [x,y] of L.pr||[])tile[y*L.w+x]=11;
   for(const [x,y,p] of L.fx||[])fixed[y*L.w+x]=p;
-  return {L,w:L.w,h:L.h,n,tile,need,fixed};
+  return {L,w:L.w,h:L.h,n,tile,col,gid,need,fixed};
 }
 const placeable=(B,i)=>B.tile[i]===0&&!B.fixed[i];
-// pieces: Uint8Array(n) of player pieces. Returns arriving colour masks, per-cell beam use, and segments to draw.
+// pieces: Uint8Array(n) of player pieces. Light keeps spreading until nothing changes: a relay that lights up adds beams,
+// a switch that lights up opens its gates. Returns arriving colour masks, beam use per square, segments to draw,
+// and which relays shine / which gates are open.
 function trace(B,pieces,wantSegs){
-  const {w,h,tile,fixed}=B, hit=new Uint8Array(B.n), seen=new Uint16Array(B.n), segs=wantSegs?[]:null;
-  const st=[];for(const [x,y,d,c] of B.L.em)st.push(x,y,d,c);
-  while(st.length){
-    let c=st.pop(),d=st.pop(),y=st.pop(),x=st.pop();
-    for(;;){
-      const nx=x+DX[d],ny=y+DY[d];
-      if(nx<0||ny<0||nx>=w||ny>=h){segs&&segs.push(x,y,d,c,.5);break;}
-      const i=ny*w+nx,t=tile[i];
-      if(t===1||t>=3){hit[i]|=1<<c;segs&&segs.push(x,y,d,c,t===1?.5:.68);break;}
-      const bit=1<<(d*3+c);
-      segs&&segs.push(x,y,d,c,1);
-      if(seen[i]&bit)break;
-      seen[i]|=bit;x=nx;y=ny;
-      const p=pieces[i]||fixed[i];
-      if(p===1)d=SL[d];else if(p===2)d=BS[d];
-      else if(p===3)st.push(x,y,SL[d],c);else if(p===4)st.push(x,y,BS[d],c);
+  const {w,h,tile,fixed,col,gid}=B;
+  const relayOn=new Uint8Array(B.n),open=new Set();
+  let hit,seen,segs;
+  for(let round=0;round<32;round++){
+    hit=new Uint8Array(B.n);seen=new Uint16Array(B.n);segs=wantSegs?[]:null;
+    const st=[];for(const [x,y,d,c] of B.L.em)st.push(x,y,d,c);
+    for(let i=0;i<B.n;i++)if(relayOn[i])for(let d=0;d<4;d++)st.push(i%w,(i/w)|0,d,col[i]);
+    while(st.length){
+      let c=st.pop(),d=st.pop(),y=st.pop(),x=st.pop();
+      for(;;){
+        const nx=x+DX[d],ny=y+DY[d];
+        if(nx<0||ny<0||nx>=w||ny>=h){segs&&segs.push(x,y,d,c,.5);break;}
+        const i=ny*w+nx,t=tile[i];
+        const stop=t===1||t===3||t===4||t===5||t===6||t===9||(t===10&&!open.has(gid[i]))||(t===7&&col[i]!==c);
+        if(stop){hit[i]|=1<<c;segs&&segs.push(x,y,d,c,t===1||t===10?.5:t===7?.62:.68);break;}
+        const bit=1<<(d*3+c);
+        segs&&segs.push(x,y,d,c,1);
+        if(seen[i]&bit)break;
+        seen[i]|=bit;hit[i]|=1<<c;x=nx;y=ny;
+        if(t===8)c=col[i];
+        else if(t===11)d=PRISM(d,c);
+        const p=pieces[i]||fixed[i];
+        if(p===1)d=SL[d];else if(p===2)d=BS[d];
+        else if(p===3)st.push(x,y,SL[d],c);else if(p===4)st.push(x,y,BS[d],c);
+        else if(p===5)d=PRISM(d,c);
+      }
     }
+    let changed=false;
+    for(let i=0;i<B.n;i++){
+      if(tile[i]===6&&!relayOn[i]&&hit[i]>>col[i]&1){relayOn[i]=1;changed=true;}
+      if(tile[i]===9&&hit[i]>>col[i]&1&&!open.has(gid[i])){open.add(gid[i]);changed=true;}
+    }
+    if(!changed)break;
   }
-  return {hit,seen,segs};
+  return {hit,seen,segs,relayOn,open};
 }
 function solved(B,hit){for(let i=0;i<B.n;i++)if(B.need[i]>=0&&hit[i]!==B.need[i])return false;return true;}
 </script>
 <script>
 /* ---------- levels: generated by a solver-checked generator; par = fewest pieces, sol = one shortest solution.
-   14-39: planted-solution generator, kept boards with a proven par of 4-6 and at most 4 minimal solutions ---------- */
+   14-39: planted-solution generator, kept boards with a proven par of 4-6 and at most 4 minimal solutions.
+   40-63: crystal levels; each featured crystal is proven essential (switched off, the level cannot be solved) ---------- */
 const LEVELS=[
 {"name":"First light","w":6,"h":5,"map":["..#...","......","......","......","......"],"em":[[5,2,2,0]],"tg":[[4,4,1]],"cr":[],"fx":[],"tray":{"m":1,"s":0},"par":1,"sol":[[4,2,1]]},
 {"name":"Dog leg","w":7,"h":5,"map":[".......","......#","#.....#",".......","......."],"em":[[2,4,3,0]],"tg":[[6,4,1]],"cr":[],"fx":[],"tray":{"m":2,"s":0},"par":2,"sol":[[2,3,1],[6,3,2]]},
@@ -188,12 +218,36 @@ const LEVELS=[
 {"name":"Full house","w":11,"h":8,"map":[".#........#","...........",":...#....#.","....#......",".#.#.......",":.#........","#..#..#...#","...#....:.."],"em":[[6,7,2,0],[8,6,3,1],[6,2,2,2]],"tg":[[2,0,4],[7,4,1],[3,5,2]],"cr":[[3,0],[5,3],[5,6]],"fx":[],"tray":{"m":8,"s":0},"par":6,"sol":[[2,1,2],[5,1,2],[5,2,2],[4,4,1],[8,5,2],[4,7,2]]},
 {"name":"Northern lights","w":11,"h":8,"map":["..:.#.##...","...#...:.#.",".#...#.....",".#.........","..#........","#........#.","..##..#....","......#..:."],"em":[[4,7,1,0],[7,5,0,1],[9,3,2,2]],"tg":[[7,4,6],[9,4,4],[6,4,2]],"cr":[[5,3]],"fx":[],"tray":{"m":6,"s":2},"par":6,"sol":[[6,1,1],[8,1,2],[7,3,1],[8,3,3],[8,4,4],[8,5,1]]},
 {"name":"Clockwork","w":11,"h":8,"map":["...........",".:.....:...","#.#...:...#",".#..:...##.","..........#","#...:...:.:",":..........","........#.:"],"em":[[8,0,0,0],[6,7,0,1],[4,7,1,2]],"tg":[[10,0,2],[4,1,1],[5,2,1]],"cr":[[6,4],[6,5],[6,3]],"fx":[],"tray":{"m":5,"s":2},"par":6,"sol":[[9,0,2],[9,1,3],[10,1,1],[7,2,3],[9,2,1],[7,7,1]]},
-{"name":"Prism vault","w":11,"h":8,"map":[".#.:.......",".......#...","...........","...#..#:...","........##.","......##...","#.#........",".......#:.."],"em":[[0,2,0,0],[4,3,3,1],[0,0,2,2]],"tg":[[4,4,3],[4,0,3],[3,2,2]],"cr":[[2,0],[2,2],[6,2]],"fx":[],"tray":{"m":5,"s":2},"par":6,"sol":[[1,1,1],[4,1,3],[5,1,2],[1,2,1],[4,2,4],[5,4,1]]}
+{"name":"Prism vault","w":11,"h":8,"map":[".#.:.......",".......#...","...........","...#..#:...","........##.","......##...","#.#........",".......#:.."],"em":[[0,2,0,0],[4,3,3,1],[0,0,2,2]],"tg":[[4,4,3],[4,0,3],[3,2,2]],"cr":[[2,0],[2,2],[6,2]],"fx":[],"tray":{"m":5,"s":2},"par":6,"sol":[[1,1,1],[4,1,3],[5,1,2],[1,2,1],[4,2,4],[5,4,1]]},
+{"name":"Rainbow","w":7,"h":6,"map":[".##.#..",".....#.",".......","#.#..#.",".......","......."],"em":[[6,4,2,0],[1,2,1,1],[0,4,0,2]],"tg":[[3,5,2],[0,5,4]],"cr":[[4,1]],"tray":{"m":2,"s":0,"p":1},"par":3,"sol":[[1,4,2],[3,4,2],[1,5,5]]},
+{"name":"Three ways","w":7,"h":6,"map":["....#..","#......",".......",".......","#.....#","......."],"em":[[3,3,0,0],[5,5,2,1],[0,5,0,2]],"tg":[[2,1,3],[2,5,4]],"cr":[[1,4]],"tray":{"m":2,"s":0,"p":1},"par":3,"sol":[[4,1,2],[4,3,5],[4,5,2]]},
+{"name":"Spectrum split","w":9,"h":7,"map":["...:#...:","....#...#",".........","...##....",":........","....:..:.","........."],"em":[[3,1,1,0],[8,2,2,1],[7,4,3,2]],"tg":[[7,1,2],[0,1,2],[5,0,1]],"cr":[[1,1],[6,3]],"tray":{"m":2,"s":1,"p":2},"par":5,"sol":[[0,2,2],[3,2,5],[5,2,5],[7,2,4],[7,3,1]]},
+{"name":"Prism break","w":9,"h":7,"map":[".......:.",".........",".........","..:....#.","#.##....:",".#....#..","........."],"em":[[0,2,0,0],[3,1,2,1],[5,4,3,2]],"tg":[[3,2,6],[1,0,1],[6,0,4]],"cr":[[6,1],[4,1]],"tray":{"m":2,"s":1,"p":2},"par":5,"sol":[[5,0,5],[2,1,1],[1,2,5],[2,2,2],[5,2,4]]},
+{"name":"Windows","w":7,"h":6,"map":[".###...","#......","......#",".....#.","...#...","...#..."],"em":[[1,1,1,0],[0,2,0,2]],"tg":[[3,2,1],[4,0,4]],"cr":[[5,2]],"gl":[[3,1,0],[3,3,2]],"tray":{"m":3,"s":0},"par":3,"sol":[[1,2,2],[1,3,2],[4,3,1]]},
+{"name":"Stained glass","w":7,"h":6,"map":["...#..#",".......","...#...",".#.....","..###..","......."],"em":[[2,5,2,0],[0,5,3,2]],"tg":[[3,5,4],[0,0,4]],"cr":[[6,3]],"gl":[[3,3,0],[3,1,2]],"tray":{"m":2,"s":1},"par":3,"sol":[[0,1,3],[5,1,2],[5,5,1]]},
+{"name":"Through the pane","w":9,"h":7,"map":["........#","....#....","......#..",".........",".#.#.....","....#....","..:##...."],"em":[[2,0,1,0],[2,1,0,1],[1,3,2,2]],"tg":[[0,2,4],[4,2,2],[5,2,2]],"gl":[[4,0,0],[4,3,1],[4,4,2]],"tray":{"m":4,"s":1},"par":5,"sol":[[3,1,2],[3,2,4],[0,3,2],[3,3,2],[5,3,1]]},
+{"name":"Filter maze","w":9,"h":7,"map":[".........","..#.#....",".........","..::.....","....#....","......#..","...##...."],"em":[[3,5,2,0],[0,3,0,1],[2,6,3,2]],"tg":[[4,0,5],[6,3,2],[0,5,4]],"cr":[[5,4],[5,2]],"gl":[[4,2,0],[4,3,1],[4,5,2]],"tray":{"m":3,"s":2},"par":5,"sol":[[1,0,1],[1,2,4],[2,2,2],[1,5,4],[2,5,2]]},
+{"name":"Colour change","w":7,"h":6,"map":[".....#.",".......",".......",".......",".....#.","......."],"em":[[6,4,3,0]],"tg":[[1,0,1],[4,1,4]],"cr":[[4,2]],"cs":[[5,1,2]],"tray":{"m":2,"s":1},"par":3,"sol":[[6,1,2],[1,3,2],[6,3,4]]},
+{"name":"Shifted","w":7,"h":6,"map":["#.....#",".......","#......",".......",".......",".#....."],"em":[[4,5,3,0]],"tg":[[6,4,4],[3,2,4]],"cr":[[5,2]],"cs":[[4,3,2]],"tray":{"m":2,"s":1},"par":3,"sol":[[4,1,1],[6,1,2],[4,2,4]]},
+{"name":"Chameleon","w":9,"h":7,"map":[".........",".........",".........","##......#",".....#.#.",".......#.","........."],"em":[[1,4,1,0],[2,5,3,2]],"tg":[[6,3,6],[4,0,2],[1,6,1]],"cr":[[3,1],[3,4]],"cs":[[3,2,1],[5,3,1]],"tray":{"m":3,"s":2},"par":5,"sol":[[2,2,1],[4,2,1],[6,2,2],[2,3,3],[4,3,3]]},
+{"name":"Two tone","w":9,"h":7,"map":["......:..","..:......",".........","#........","......##.",".........","........."],"em":[[8,4,1,0],[1,4,0,2]],"tg":[[4,5,3],[0,2,2],[3,0,2]],"cr":[[6,5],[4,1]],"cs":[[2,4,1],[5,3,2]],"tray":{"m":3,"s":2},"par":5,"sol":[[3,2,4],[3,4,3],[4,4,2],[4,6,2],[8,6,1]]},
+{"name":"Spark","w":7,"h":6,"map":[".#..#.#",".......",".......",".......",".......","......."],"em":[[5,1,0,0],[3,3,2,1]],"tg":[[0,4,1],[1,1,2]],"cr":[[5,2]],"rl":[[3,4,0]],"tray":{"m":3,"s":0},"par":3,"sol":[[6,1,2],[1,3,2],[6,4,1]]},
+{"name":"Relay race","w":7,"h":6,"map":[".......","..#....","#......","#......","#......","...#..."],"em":[[2,0,0,0],[2,4,2,1]],"tg":[[3,2,1],[2,2,2]],"cr":[[6,0]],"rl":[[3,1,0]],"tray":{"m":3,"s":0},"par":3,"sol":[[3,0,2],[1,2,1],[1,4,2]]},
+{"name":"Chain reaction","w":9,"h":7,"map":[".##......","#.##.##..",".#..#...#",".........","#..:.....","...#.....",".###.:..#"],"em":[[7,3,1,0],[4,0,3,1],[6,6,3,2]],"tg":[[4,4,5],[8,0,1],[4,3,1]],"cr":[[5,2],[7,5]],"rl":[[2,4,0],[6,3,0]],"tray":{"m":4,"s":1},"par":5,"sol":[[7,0,1],[6,2,1],[7,2,1],[6,4,4],[7,4,1]]},
+{"name":"Beacon","w":9,"h":7,"map":[".........","...#...#.",".:#......","...#.....",".........","..#...:..","......##."],"em":[[4,5,0,0],[5,3,0,1],[5,6,3,2]],"tg":[[7,4,6],[4,2,2],[5,0,2]],"cr":[[6,4],[8,3]],"rl":[[5,4,1],[6,2,1]],"tray":{"m":5,"s":0},"par":5,"sol":[[6,0,2],[7,2,2],[6,3,1],[5,5,1],[7,5,1]]},
+{"name":"Open sesame","w":7,"h":6,"map":["#...#..","....##.","......#","...#..#",".......","#..#..."],"em":[[2,5,3,0],[5,3,3,1]],"tg":[[4,5,2]],"cr":[[5,4]],"sw":[[3,4,0,1]],"gt":[[4,4,1]],"tray":{"m":3,"s":0},"par":3,"sol":[[4,2,1],[5,2,2],[2,4,1]]},
+{"name":"Locked lab","w":7,"h":6,"map":["....###",".......",".......",".......",".##....","......."],"em":[[0,4,3,0],[6,1,1,1]],"tg":[[5,1,1]],"cr":[[3,1]],"sw":[[2,2,1,1]],"gt":[[4,3,1]],"tray":{"m":3,"s":0},"par":3,"sol":[[6,2,1],[0,3,1],[5,3,1]]},
+{"name":"Keys and doors","w":9,"h":7,"map":[".........",".#.......",".........",".........",".#.:.....","...##....","......#.."],"em":[[3,1,3,0],[6,4,3,1],[0,4,3,2]],"tg":[[7,2,2],[0,2,1]],"cr":[[2,1]],"sw":[[1,3,2,1],[6,2,1,2]],"gt":[[2,0,1],[0,1,2]],"tray":{"m":4,"s":1},"par":5,"sol":[[0,0,1],[3,0,2],[0,3,1],[6,3,3],[7,3,1]]},
+{"name":"Airlock","w":9,"h":7,"map":[".:.....#.",":..#.....","..#......","..:..#...",".........","#........","#........"],"em":[[3,3,0,0],[6,4,1,1],[8,0,1,2]],"tg":[[3,5,4],[5,4,1]],"cr":[[7,4],[4,6]],"sw":[[8,6,1,1],[5,2,2,2]],"gt":[[6,2,1],[5,5,2]],"tray":{"m":4,"s":1},"par":5,"sol":[[5,1,1],[8,1,3],[4,3,2],[4,4,2],[8,5,1]]},
+{"name":"Workshop","w":10,"h":7,"map":["........#.","......##..","#:........","..#.......","...:##....",".#........",".##.#....."],"em":[[3,0,2,0],[1,3,3,2]],"tg":[[3,2,5],[4,0,1],[1,0,1]],"rl":[[3,1,0]],"cs":[[3,3,1]],"sw":[[3,5,0,1]],"gt":[[4,2,1]],"tray":{"m":4,"s":0,"p":1},"par":5,"sol":[[2,0,5],[1,1,1],[2,1,2],[4,1,1],[2,2,2]]},
+{"name":"Clockwork light","w":10,"h":7,"map":["..........",".......#..","..........","....##.:#.","..........","......:...","....#....."],"em":[[8,5,2,0],[7,2,1,2]],"tg":[[9,6,5],[5,4,4],[8,4,4]],"cr":[[5,1],[7,0]],"rl":[[6,4,2]],"cs":[[3,2,1]],"sw":[[4,5,2,1]],"gt":[[1,2,1]],"tray":{"m":4,"s":0,"p":1},"par":5,"sol":[[5,5,1],[7,5,5],[5,6,2],[6,6,1],[7,6,2]]},
+{"name":"Grand prism","w":10,"h":8,"map":["....:.....","#.........","..#.......","......#.#.","......#..#",".#........","...###.##.","#.#.#....."],"em":[[2,3,1,0],[4,2,3,1],[3,3,1,2]],"tg":[[2,6,5],[7,1,2]],"cr":[[2,1],[5,0]],"rl":[[4,4,1]],"gl":[[1,1,2]],"sw":[[0,0,2,1]],"gt":[[6,1,1]],"tray":{"m":3,"s":1,"p":1},"par":5,"sol":[[1,0,2],[4,1,1],[1,4,2],[2,4,3],[3,4,5]]},
+{"name":"Finale","w":10,"h":8,"map":["......#.#:",".....##...","....#.....","...:......","..........","..........",":.........",".:.:.....#"],"em":[[5,4,3,0],[0,1,1,1],[6,2,2,2]],"tg":[[0,4,5],[9,5,1]],"cr":[[6,6],[3,6]],"rl":[[1,1,1]],"gl":[[2,4,0]],"sw":[[0,2,1,1]],"gt":[[6,5,1]],"tray":{"m":4,"s":1,"p":1},"par":5,"sol":[[5,2,1],[0,3,1],[2,3,3],[5,3,5],[2,5,2]]}
 ];
 const TIPS=[
   'Tap a free square to place a mirror, tap the mirror to turn it. Steer the red beam into the target.',
   'Two mirrors this time. Drag a piece to move it, or drag it off the board to take it back.',
-  'Crystals must stay dark. A beam on a crystal ruins it.',
+  'Fragile crystals (white diamonds) must stay dark. A beam on one cracks it.',
   'A splitter lets half the beam through and turns the other half.',
   'One beam, two targets. Spare pieces are fine, but the fewest earns three stars.',
   'Each target wants its own colour, exactly. A wrong colour mixed in does not count.',
@@ -204,6 +258,13 @@ const TIPS=[
   'White needs red, green and blue at once.',
   '',''
 ];
+Object.assign(TIPS,{
+  39:'New piece: the prism. Red turns left, green goes straight on, blue turns right. White light fans out into all three, and three beams aimed right merge into white.',
+  43:'Coloured glass lets only its own colour through.',
+  47:'A colour shifter repaints any beam that passes through it.',
+  51:'A relay crystal lit with its own colour shines that colour out of all four sides. Relays can light each other.',
+  55:'Light a switch crystal with its colour to open every gate with the same number.',
+  59:'Prisms, relays, glass, shifters and switches together.'});
 
 /* ---------- state ---------- */
 const $=s=>document.querySelector(s);
@@ -213,7 +274,7 @@ const MIXC={1:'#ff4a5c',2:'#38e07c',4:'#4a86ff',3:'#ffe14a',5:'#e05cff',6:'#45e6
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let save={stars:{}};try{save=Object.assign(save,JSON.parse(localStorage.getItem('laserlab-save')||'{}'));}catch(e){}
 function persist(){try{localStorage.setItem('laserlab-save',JSON.stringify(save));}catch(e){}}
-let li=0,B,L,P,hist=[],res,won=false,sel=1,lastTurn={m:1,s:3},hover=-1,drag=null,hintCell=null,hintT=0,winT=0;
+let li=0,B,L,P,hist=[],res,won=false,sel=1,lastTurn={m:1,s:3,p:5},hover=-1,drag=null,hintCell=null,hintT=0,winT=0;
 
 function load(i){
   li=i;L=LEVELS[i];B=build(L);P=new Uint8Array(B.n);hist=[];won=false;hintCell=null;drag=null;
@@ -221,12 +282,13 @@ function load(i){
   $('#stage').style.maxWidth=`min(100%, ${(L.w/L.h*62).toFixed(2)}vh)`;
   $('#lvname').textContent=`${i+1}. ${L.name}`;
   $('#hint').textContent=TIPS[i]||'Every target lit with exactly its colour, every crystal dark.';
-  $('#mix').hidden=L.em.length<2;$('#ov').hidden=true;
-  sel=L.tray.m?1:3;update();levelButtons();
+  $('#mix').hidden=new Set([...L.em.map(e=>e[3]),...(L.cs||[]).map(e=>e[2])]).size<2&&!(L.pr||L.tray.p);$('#ov').hidden=true;
+  sel=L.tray.m?1:L.tray.s?3:5;update();levelButtons();
 }
-const used=k=>P.reduce((a,p)=>a+(p&&(k==='m'?p<=2:p>2)?1:0),0);
-const left=k=>L.tray[k]-used(k);
-const kindOf=p=>p<=2?'m':'s';
+const used=k=>P.reduce((a,p)=>a+(p&&KIND(p)===k?1:0),0);
+const left=k=>(L.tray[k]||0)-used(k);
+const kindOf=KIND;
+const NAME={m:'Mirror',s:'Splitter',p:'Prism'};
 function update(){
   res=trace(B,P,true);
   const n=P.reduce((a,p)=>a+(p?1:0),0);
@@ -237,16 +299,16 @@ function update(){
 function commit(fn){hist.push(P.slice());fn();hintCell=null;update();}
 
 /* ---------- tray ---------- */
-const ICON={m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
+const ICON={p:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M17 7 L27 25 H7 Z" fill="#cfe3ff" fill-opacity=".25" stroke="#e8f1ff" stroke-width="2" stroke-linejoin="round"/><path d="M10 25 L14 18" stroke="#ff4a5c" stroke-width="2"/><path d="M17 25 V16" stroke="#38e07c" stroke-width="2"/><path d="M24 25 L20 18" stroke="#4a86ff" stroke-width="2"/></svg>',m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
   s:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#7fe3ff" stroke-opacity=".45" stroke-width="7" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#d8f7ff" stroke-width="1.8" stroke-linecap="round"/></svg>'};
 function renderTray(){
   const t=$('#tray');t.innerHTML='';
-  for(const k of ['m','s']){
+  for(const k of ['m','s','p']){
     if(!L.tray[k])continue;
-    const b=document.createElement('button');b.className='piece'+((sel<=2)===(k==='m')?' sel':'');
-    b.innerHTML=`${ICON[k]}<span>${k==='m'?'Mirror':'Splitter'}<small>${left(k)} left</small></span>`;
+    const b=document.createElement('button');b.className='piece'+(KIND(sel)===k?' sel':'');
+    b.innerHTML=`${ICON[k]}<span>${NAME[k]}<small>${left(k)} left</small></span>`;
     b.disabled=left(k)<=0&&!won;
-    b.onpointerdown=e=>{if(won)return;sel=k==='m'?lastTurn.m:lastTurn.s;renderTray();if(left(k)>0)startDrag(e,{from:'tray',p:sel});};
+    b.onpointerdown=e=>{if(won)return;sel=lastTurn[k];renderTray();if(left(k)>0)startDrag(e,{from:'tray',p:sel});};
     t.appendChild(b);
   }
 }
@@ -270,7 +332,7 @@ addEventListener('pointermove',e=>{
 addEventListener('pointerup',e=>{
   if(!drag)return;const d=drag;drag=null;const c=cellAt(e);
   if(d.from==='board'){
-    if(!d.moved){const p=P[d.cell];commit(()=>{P[d.cell]=FLIP[p];lastTurn[kindOf(p)]=FLIP[p];});return;}
+    if(!d.moved){const p=P[d.cell];if(p!==5)commit(()=>{P[d.cell]=FLIP[p];lastTurn[kindOf(p)]=FLIP[p];});return;}
     if(c<0)commit(()=>{P[d.cell]=0;});
     else if(c!==d.cell&&placeable(B,c)&&!P[c])commit(()=>{P[c]=P[d.cell];P[d.cell]=0;});
   }else if(d.from==='tray'&&d.moved&&c>=0&&placeable(B,c)&&!P[c])commit(()=>{P[c]=d.p;});
@@ -279,7 +341,7 @@ cv.addEventListener('pointerdown',e=>{
   if(won||e.button===2)return;const c=cellAt(e);if(c<0)return;
   if(P[c]){startDrag(e,{from:'board',cell:c});return;}
   if(placeable(B,c)&&left(kindOf(sel))>0)commit(()=>{P[c]=sel;});
-  else if(placeable(B,c)){const k=kindOf(sel)==='m'?'s':'m';if(L.tray[k]&&left(k)>0){sel=lastTurn[k];commit(()=>{P[c]=sel;});}}
+  else if(placeable(B,c)){const k=['m','s','p'].find(k=>left(k)>0);if(k){sel=lastTurn[k];commit(()=>{P[c]=sel;});}}
 });
 cv.addEventListener('pointerleave',()=>{if(!drag)hover=-1;});
 cv.addEventListener('contextmenu',e=>{e.preventDefault();const c=cellAt(e);if(!won&&c>=0&&P[c])commit(()=>{P[c]=0;});});
@@ -288,7 +350,7 @@ addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&k==='z'){e.preventDefault();undo();return;}
   if(e.metaKey||e.ctrlKey||won)return;
   if(k==='z')undo();else if(k==='h')hint();
-  else if(k==='1'&&L.tray.m){sel=lastTurn.m;renderTray();}else if(k==='2'&&L.tray.s){sel=lastTurn.s;renderTray();}
+  else if(k==='1'&&L.tray.m){sel=lastTurn.m;renderTray();}else if(k==='2'&&L.tray.s){sel=lastTurn.s;renderTray();}else if(k==='3'&&L.tray.p){sel=5;renderTray();}
   else if(hover>=0&&P[hover]&&(k==='r'||k===' ')){e.preventDefault();const p=P[hover];commit(()=>{P[hover]=FLIP[p];});}
   else if(hover>=0&&P[hover]&&(k==='backspace'||k==='delete'))commit(()=>{P[hover]=0;});
 });
@@ -298,7 +360,7 @@ function hint(){
   const sol=new Map(L.sol.map(([x,y,p])=>[y*L.w+x,p]));
   for(let i=0;i<B.n;i++)if(P[i]&&!sol.has(i)){hintCell={i,p:0};$('#hint').textContent='This piece is not in the shortest route. Take it back.';hintT=performance.now();return;}
   for(const [i,p] of sol)if(P[i]!==p){hintCell={i,p};hintT=performance.now();
-    $('#hint').textContent=P[i]?'Turn this piece.':`Try a ${p<=2?'mirror':'splitter'} here, turned like this.`;return;}
+    $('#hint').textContent=P[i]&&KIND(P[i])===KIND(p)?'Turn this piece.':`Try a ${NAME[KIND(p)].toLowerCase()} here${p===5?'':', turned like this'}.`;return;}
 }
 $('#bUndo').onclick=undo;$('#bHint').onclick=hint;
 $('#bReset').onclick=()=>{if(!won&&P.some(Boolean))commit(()=>P.fill(0));};
@@ -323,7 +385,11 @@ function drawPiece(x,y,p,alpha,bolted){
   if(bolted){rr(cx+6,cy+6,S-12,S-12,10);g.fillStyle='#252f45';g.fill();g.fillStyle='#55617a';
     for(const [u,v] of [[13,13],[S-13,13],[13,S-13],[S-13,S-13]]){g.beginPath();g.arc(cx+u,cy+v,3,0,7);g.fill();}}
   g.lineCap='round';
-  if(p<=2){
+  if(p===5){const mx=cx+S/2,my=cy+S/2,r=S*.3;
+    g.beginPath();g.moveTo(mx,my-r);g.lineTo(mx+r*.95,my+r*.68);g.lineTo(mx-r*.95,my+r*.68);g.closePath();
+    g.fillStyle='rgba(207,227,255,.22)';g.fill();g.strokeStyle='#e8f1ff';g.lineWidth=2.4;g.lineJoin='round';g.stroke();
+    [['#ff4a5c',-1],['#38e07c',0],['#4a86ff',1]].forEach(([c,k])=>{g.strokeStyle=c;g.lineWidth=2.2;g.beginPath();g.moveTo(mx+k*r*.18,my+r*.1);g.lineTo(mx+k*r*.5,my+r*.62);g.stroke();});
+  }else if(p<=2){
     g.strokeStyle='#5d6a85';g.lineWidth=9;g.beginPath();g.moveTo(x1+2,y1+3);g.lineTo(x2+2,y2+3);g.stroke();
     g.strokeStyle='#e4ecf8';g.lineWidth=7;g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();
     g.strokeStyle='#ffffff';g.lineWidth=2;g.beginPath();g.moveTo(x1+(x2-x1)*.15,y1+(y2-y1)*.15);g.lineTo(x1+(x2-x1)*.45,y1+(y2-y1)*.45);g.stroke();
@@ -397,6 +463,33 @@ function render(now){
     if(h){g.strokeStyle='#ffd0d6';g.lineWidth=1.6;g.beginPath();g.moveTo(-4,-r*.6);g.lineTo(3,-4);g.lineTo(-3,4);g.lineTo(4,r*.6);g.stroke();}
     g.restore();
   }
+  // relay crystals: dim until lit with their colour, then they shine out on all sides
+  for(const [x,y,c] of L.rl||[]){const i=y*L.w+x,on=res.relayOn[i],cx=(x+.5)*S,cy=(y+.5)*S,r=S*.3;
+    g.save();g.translate(cx,cy);if(on){g.shadowColor=RGB[c];g.shadowBlur=24+(reduce?0:6*Math.sin(t*5));}
+    g.beginPath();for(let k=0;k<6;k++){const a=k*Math.PI/3+Math.PI/6;g.lineTo(Math.cos(a)*r,Math.sin(a)*r);}g.closePath();
+    g.fillStyle=on?RGB[c]:'#1b2335';g.fill();g.lineWidth=3;g.strokeStyle=RGB[c];g.stroke();g.shadowBlur=0;
+    g.beginPath();for(let k=0;k<6;k++){const a=k*Math.PI/3+Math.PI/6;g.moveTo(0,0);g.lineTo(Math.cos(a)*r,Math.sin(a)*r);}g.strokeStyle=on?'rgba(255,255,255,.7)':RGB[c];g.globalAlpha=on?1:.45;g.lineWidth=1.2;g.stroke();
+    g.restore();}
+  // coloured glass: only its own colour gets through
+  for(const [x,y,c] of L.gl||[]){const X=x*S,Y=y*S;g.save();rr(X+8,Y+8,S-16,S-16,6);g.fillStyle=RGB[c];g.globalAlpha=.28;g.fill();g.globalAlpha=1;g.strokeStyle=RGB[c];g.lineWidth=3;g.stroke();
+    g.strokeStyle='rgba(255,255,255,.55)';g.lineWidth=2;g.beginPath();g.moveTo(X+16,Y+S-22);g.lineTo(X+24,Y+14);g.stroke();g.restore();}
+  // colour shifters: whatever goes in comes out in their colour
+  for(const [x,y,c] of L.cs||[]){const cx=(x+.5)*S,cy=(y+.5)*S;g.save();g.translate(cx,cy);
+    g.beginPath();g.arc(0,0,S*.3,0,7);g.fillStyle='#1b2335';g.fill();
+    const grd=g.createConicGradient?g.createConicGradient(t*(reduce?0:1.5),0,0):null;if(grd){grd.addColorStop(0,'#ff4a5c');grd.addColorStop(.33,'#38e07c');grd.addColorStop(.66,'#4a86ff');grd.addColorStop(1,'#ff4a5c');}
+    g.lineWidth=5;g.strokeStyle=grd||'#aab';g.beginPath();g.arc(0,0,S*.27,0,7);g.stroke();
+    g.fillStyle=RGB[c];g.beginPath();g.arc(0,0,S*.14,0,7);g.fill();g.restore();}
+  // switch crystals and the gates they open
+  for(const [x,y,c,id] of L.sw||[]){const cx=(x+.5)*S,cy=(y+.5)*S,r=S*.3,on=res.open.has(id);g.save();g.translate(cx,cy);
+    if(on){g.shadowColor=RGB[c];g.shadowBlur=20;}
+    g.beginPath();g.moveTo(0,-r);g.lineTo(r*.8,0);g.lineTo(0,r);g.lineTo(-r*.8,0);g.closePath();g.fillStyle=on?RGB[c]:'#1b2335';g.fill();g.strokeStyle=RGB[c];g.lineWidth=3;g.stroke();g.shadowBlur=0;
+    g.fillStyle=on?'#0e1422':'#e9eef7';g.font='700 15px Fredoka, system-ui, sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(id,0,1);g.restore();}
+  for(const [x,y,id] of L.gt||[]){const X=x*S,Y=y*S,on=res.open.has(id);g.save();
+    if(on){g.strokeStyle='rgba(233,238,247,.35)';g.setLineDash([5,5]);g.lineWidth=2;rr(X+5,Y+5,S-10,S-10,8);g.stroke();g.setLineDash([]);}
+    else{rr(X+3,Y+3,S-6,S-6,8);g.fillStyle='#2b3651';g.fill();g.fillStyle='#8f9ab3';for(let k=0;k<4;k++)g.fillRect(X+12+k*(S-24)/3-3,Y+6,6,S-12);}
+    g.fillStyle=on?'#8a97ad':'#e9eef7';g.font='700 13px Fredoka, system-ui, sans-serif';g.textAlign='center';g.textBaseline='middle';
+    rr(X+S/2-10,Y+S/2-10,20,20,6);g.fillStyle=on?'#141c2c':'#0e1422';g.fill();g.fillStyle=on?'#8a97ad':'#e9eef7';g.fillText(id,X+S/2,Y+S/2+1);g.restore();}
+  for(const [x,y] of L.pr||[])drawPiece(x,y,5,1,true);
   // hint ghost
   if(hintCell&&now-hintT<4000){
     const x=hintCell.i%L.w,y=hintCell.i/L.w|0,pulse=.5+.5*Math.sin((now-hintT)/160);
