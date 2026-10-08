@@ -103,16 +103,17 @@ canvas#board{display:block;width:100%;height:auto;touch-action:none;cursor:point
 
 <script id="sim">
 /* ---------- beams (pure, no DOM) ---------- */
-// Directions 0 right, 1 down, 2 left, 3 up. Pieces: 1 mirror /, 2 mirror \, 3 splitter /, 4 splitter \, 5 prism.
+// Directions 0 right, 1 down, 2 left, 3 up. Pieces: 1 mirror /, 2 mirror \, 3 splitter /, 4 splitter \,
+// 5-8 prism with its tip pointing right, down, left, up.
 const DX=[1,0,-1,0],DY=[0,1,0,-1];
 const SL=[3,2,1,0],BS=[1,0,3,2];
 const KIND=p=>p<=2?'m':p<=4?'s':'p';   // mirror, splitter or prism
-const FLIP={1:2,2:1,3:4,4:3,5:5};
-// A prism bends each colour its own way: red turns left, green goes straight, blue turns right.
-// So white splits into three beams, and three beams aimed right merge back into white.
-const PRISM=(d,c)=>c===0?(d+3)%4:c===2?(d+1)%4:d;
+const FLIP={1:2,2:1,3:4,4:3,5:6,6:7,7:8,8:5};
+// A prism with its tip toward a: glass bends blue more than red, so a beam crossing it sideways fans out,
+// red turning toward the tip, blue toward the base, green straight on. Aimed at the tip or base, it goes straight.
+const PRISM=(d,c,a)=>(d-a)%2===0||c===1?d:c===0?a:(a+2)%4;
 // Level: {w,h,map,em:[[x,y,dir,c]],tg:[[x,y,mask]],cr:[[x,y]],fx:[[x,y,piece]],tray:{m,s,p},par,sol,
-//   rl:[[x,y,c]] relay crystals, pr:[[x,y]] fixed prisms, gl:[[x,y,c]] coloured glass, cs:[[x,y,c]] colour shifters,
+//   rl:[[x,y,c]] relay crystals, pr:[[x,y,a]] fixed prisms (tip toward a), gl:[[x,y,c]] coloured glass, cs:[[x,y,c]] colour shifters,
 //   sw:[[x,y,c,id]] switch crystals, gt:[[x,y,id]] gates}
 // map chars: '.' floor, '#' wall, ':' grate (beams pass, nothing can be placed)
 // tiles: 0 floor 1 wall 2 grate 3 emitter 4 target 5 fragile crystal 6 relay 7 glass 8 shifter 9 switch 10 gate 11 prism
@@ -128,7 +129,7 @@ function build(L){
   for(const [x,y,c] of L.cs||[]){tile[y*L.w+x]=8;col[y*L.w+x]=c;}
   for(const [x,y,c,id] of L.sw||[]){tile[y*L.w+x]=9;col[y*L.w+x]=c;gid[y*L.w+x]=id;}
   for(const [x,y,id] of L.gt||[]){tile[y*L.w+x]=10;gid[y*L.w+x]=id;}
-  for(const [x,y] of L.pr||[])tile[y*L.w+x]=11;
+  for(const [x,y,a] of L.pr||[]){tile[y*L.w+x]=11;col[y*L.w+x]=a;}
   for(const [x,y,p] of L.fx||[])fixed[y*L.w+x]=p;
   return {L,w:L.w,h:L.h,n,tile,col,gid,need,fixed};
 }
@@ -157,11 +158,11 @@ function trace(B,pieces,wantSegs){
         if(seen[i]&bit)break;
         seen[i]|=bit;hit[i]|=1<<c;x=nx;y=ny;
         if(t===8)c=col[i];
-        else if(t===11)d=PRISM(d,c);
+        else if(t===11)d=PRISM(d,c,col[i]);
         const p=pieces[i]||fixed[i];
         if(p===1)d=SL[d];else if(p===2)d=BS[d];
         else if(p===3)st.push(x,y,SL[d],c);else if(p===4)st.push(x,y,BS[d],c);
-        else if(p===5)d=PRISM(d,c);
+        else if(p>=5)d=PRISM(d,c,p-5);
       }
     }
     let changed=false;
@@ -220,9 +221,9 @@ const LEVELS=[
 {"name":"Clockwork","w":11,"h":8,"map":["...........",".:.....:...","#.#...:...#",".#..:...##.","..........#","#...:...:.:",":..........","........#.:"],"em":[[8,0,0,0],[6,7,0,1],[4,7,1,2]],"tg":[[10,0,2],[4,1,1],[5,2,1]],"cr":[[6,4],[6,5],[6,3]],"fx":[],"tray":{"m":5,"s":2},"par":6,"sol":[[9,0,2],[9,1,3],[10,1,1],[7,2,3],[9,2,1],[7,7,1]]},
 {"name":"Prism vault","w":11,"h":8,"map":[".#.:.......",".......#...","...........","...#..#:...","........##.","......##...","#.#........",".......#:.."],"em":[[0,2,0,0],[4,3,3,1],[0,0,2,2]],"tg":[[4,4,3],[4,0,3],[3,2,2]],"cr":[[2,0],[2,2],[6,2]],"fx":[],"tray":{"m":5,"s":2},"par":6,"sol":[[1,1,1],[4,1,3],[5,1,2],[1,2,1],[4,2,4],[5,4,1]]},
 {"name":"Rainbow","w":7,"h":6,"map":[".##.#..",".....#.",".......","#.#..#.",".......","......."],"em":[[6,4,2,0],[1,2,1,1],[0,4,0,2]],"tg":[[3,5,2],[0,5,4]],"cr":[[4,1]],"tray":{"m":2,"s":0,"p":1},"par":3,"sol":[[1,4,2],[3,4,2],[1,5,5]]},
-{"name":"Three ways","w":7,"h":6,"map":["....#..","#......",".......",".......","#.....#","......."],"em":[[3,3,0,0],[5,5,2,1],[0,5,0,2]],"tg":[[2,1,3],[2,5,4]],"cr":[[1,4]],"tray":{"m":2,"s":0,"p":1},"par":3,"sol":[[4,1,2],[4,3,5],[4,5,2]]},
-{"name":"Spectrum split","w":9,"h":7,"map":["...:#...:","....#...#",".........","...##....",":........","....:..:.","........."],"em":[[3,1,1,0],[8,2,2,1],[7,4,3,2]],"tg":[[7,1,2],[0,1,2],[5,0,1]],"cr":[[1,1],[6,3]],"tray":{"m":2,"s":1,"p":2},"par":5,"sol":[[0,2,2],[3,2,5],[5,2,5],[7,2,4],[7,3,1]]},
-{"name":"Prism break","w":9,"h":7,"map":[".......:.",".........",".........","..:....#.","#.##....:",".#....#..","........."],"em":[[0,2,0,0],[3,1,2,1],[5,4,3,2]],"tg":[[3,2,6],[1,0,1],[6,0,4]],"cr":[[6,1],[4,1]],"tray":{"m":2,"s":1,"p":2},"par":5,"sol":[[5,0,5],[2,1,1],[1,2,5],[2,2,2],[5,2,4]]},
+{"name":"Three ways","w":7,"h":6,"map":["....#..","#......",".......",".......","#.....#","......."],"em":[[3,3,0,0],[5,5,2,1],[0,5,0,2]],"tg":[[2,1,3],[2,5,4]],"cr":[[1,4]],"tray":{"m":2,"s":0,"p":1},"par":3,"sol":[[4,1,2],[4,3,8],[4,5,2]]},
+{"name":"Spectrum split","w":9,"h":7,"map":["...:#...:","....#...#",".........","...##....",":........","....:..:.","........."],"em":[[3,1,1,0],[8,2,2,1],[7,4,3,2]],"tg":[[7,1,2],[0,1,2],[5,0,1]],"cr":[[1,1],[6,3]],"tray":{"m":2,"s":1,"p":2},"par":5,"sol":[[0,2,2],[3,2,5],[5,2,8],[7,2,4],[7,3,1]]},
+{"name":"Prism break","w":9,"h":7,"map":[".......:.",".........",".........","..:....#.","#.##....:",".#....#..","........."],"em":[[0,2,0,0],[3,1,2,1],[5,4,3,2]],"tg":[[3,2,6],[1,0,1],[6,0,4]],"cr":[[6,1],[4,1]],"tray":{"m":2,"s":1,"p":2},"par":5,"sol":[[5,0,7],[2,1,1],[1,2,8],[2,2,2],[5,2,4]]},
 {"name":"Windows","w":7,"h":6,"map":[".###...","#......","......#",".....#.","...#...","...#..."],"em":[[1,1,1,0],[0,2,0,2]],"tg":[[3,2,1],[4,0,4]],"cr":[[5,2]],"gl":[[3,1,0],[3,3,2]],"tray":{"m":3,"s":0},"par":3,"sol":[[1,2,2],[1,3,2],[4,3,1]]},
 {"name":"Stained glass","w":7,"h":6,"map":["...#..#",".......","...#...",".#.....","..###..","......."],"em":[[2,5,2,0],[0,5,3,2]],"tg":[[3,5,4],[0,0,4]],"cr":[[6,3]],"gl":[[3,3,0],[3,1,2]],"tray":{"m":2,"s":1},"par":3,"sol":[[0,1,3],[5,1,2],[5,5,1]]},
 {"name":"Through the pane","w":9,"h":7,"map":["........#","....#....","......#..",".........",".#.#.....","....#....","..:##...."],"em":[[2,0,1,0],[2,1,0,1],[1,3,2,2]],"tg":[[0,2,4],[4,2,2],[5,2,2]],"gl":[[4,0,0],[4,3,1],[4,4,2]],"tray":{"m":4,"s":1},"par":5,"sol":[[3,1,2],[3,2,4],[0,3,2],[3,3,2],[5,3,1]]},
@@ -239,10 +240,10 @@ const LEVELS=[
 {"name":"Locked lab","w":7,"h":6,"map":["....###",".......",".......",".......",".##....","......."],"em":[[0,4,3,0],[6,1,1,1]],"tg":[[5,1,1]],"cr":[[3,1]],"sw":[[2,2,1,1]],"gt":[[4,3,1]],"tray":{"m":3,"s":0},"par":3,"sol":[[6,2,1],[0,3,1],[5,3,1]]},
 {"name":"Keys and doors","w":9,"h":7,"map":[".........",".#.......",".........",".........",".#.:.....","...##....","......#.."],"em":[[3,1,3,0],[6,4,3,1],[0,4,3,2]],"tg":[[7,2,2],[0,2,1]],"cr":[[2,1]],"sw":[[1,3,2,1],[6,2,1,2]],"gt":[[2,0,1],[0,1,2]],"tray":{"m":4,"s":1},"par":5,"sol":[[0,0,1],[3,0,2],[0,3,1],[6,3,3],[7,3,1]]},
 {"name":"Airlock","w":9,"h":7,"map":[".:.....#.",":..#.....","..#......","..:..#...",".........","#........","#........"],"em":[[3,3,0,0],[6,4,1,1],[8,0,1,2]],"tg":[[3,5,4],[5,4,1]],"cr":[[7,4],[4,6]],"sw":[[8,6,1,1],[5,2,2,2]],"gt":[[6,2,1],[5,5,2]],"tray":{"m":4,"s":1},"par":5,"sol":[[5,1,1],[8,1,3],[4,3,2],[4,4,2],[8,5,1]]},
-{"name":"Workshop","w":10,"h":7,"map":["........#.","......##..","#:........","..#.......","...:##....",".#........",".##.#....."],"em":[[3,0,2,0],[1,3,3,2]],"tg":[[3,2,5],[4,0,1],[1,0,1]],"rl":[[3,1,0]],"cs":[[3,3,1]],"sw":[[3,5,0,1]],"gt":[[4,2,1]],"tray":{"m":4,"s":0,"p":1},"par":5,"sol":[[2,0,5],[1,1,1],[2,1,2],[4,1,1],[2,2,2]]},
-{"name":"Clockwork light","w":10,"h":7,"map":["..........",".......#..","..........","....##.:#.","..........","......:...","....#....."],"em":[[8,5,2,0],[7,2,1,2]],"tg":[[9,6,5],[5,4,4],[8,4,4]],"cr":[[5,1],[7,0]],"rl":[[6,4,2]],"cs":[[3,2,1]],"sw":[[4,5,2,1]],"gt":[[1,2,1]],"tray":{"m":4,"s":0,"p":1},"par":5,"sol":[[5,5,1],[7,5,5],[5,6,2],[6,6,1],[7,6,2]]},
-{"name":"Grand prism","w":10,"h":8,"map":["....:.....","#.........","..#.......","......#.#.","......#..#",".#........","...###.##.","#.#.#....."],"em":[[2,3,1,0],[4,2,3,1],[3,3,1,2]],"tg":[[2,6,5],[7,1,2]],"cr":[[2,1],[5,0]],"rl":[[4,4,1]],"gl":[[1,1,2]],"sw":[[0,0,2,1]],"gt":[[6,1,1]],"tray":{"m":3,"s":1,"p":1},"par":5,"sol":[[1,0,2],[4,1,1],[1,4,2],[2,4,3],[3,4,5]]},
-{"name":"Finale","w":10,"h":8,"map":["......#.#:",".....##...","....#.....","...:......","..........","..........",":.........",".:.:.....#"],"em":[[5,4,3,0],[0,1,1,1],[6,2,2,2]],"tg":[[0,4,5],[9,5,1]],"cr":[[6,6],[3,6]],"rl":[[1,1,1]],"gl":[[2,4,0]],"sw":[[0,2,1,1]],"gt":[[6,5,1]],"tray":{"m":4,"s":1,"p":1},"par":5,"sol":[[5,2,1],[0,3,1],[2,3,3],[5,3,5],[2,5,2]]}
+{"name":"Workshop","w":10,"h":7,"map":["........#.","......##..","#.........","..#.......","...:##....",".#........",".##.#....."],"em":[[3,0,2,0],[1,3,3,2]],"tg":[[3,2,5],[4,0,1],[1,0,1]],"rl":[[3,1,0]],"cs":[[3,3,1]],"sw":[[3,5,0,1]],"gt":[[4,2,1]],"tray":{"m":4,"s":0,"p":1},"par":5,"sol":[[2,0,1],[1,1,2],[2,1,5],[4,1,1],[1,2,1]]},
+{"name":"Clockwork light","w":10,"h":7,"map":["..........",".......#..","..........","....##.::.","..........","......:...","....#....."],"em":[[8,5,2,0],[7,2,1,2]],"tg":[[9,6,5],[5,4,4],[8,4,4]],"cr":[[5,1],[7,0]],"rl":[[6,4,2]],"cs":[[3,2,1]],"sw":[[4,5,2,1]],"gt":[[1,2,1]],"tray":{"m":4,"s":0,"p":1},"par":5,"sol":[[6,3,1],[9,3,2],[7,4,5],[5,5,1],[5,6,2]]},
+{"name":"Grand prism","w":10,"h":8,"map":["....:.....","#.........","..#.......","......#.#.","......#..#",".#........","...###.##.","#.#.#....."],"em":[[2,3,1,0],[4,2,3,1],[3,3,1,2]],"tg":[[2,6,5],[7,1,2]],"cr":[[2,1],[5,0]],"rl":[[4,4,1]],"gl":[[1,1,2]],"sw":[[0,0,2,1]],"gt":[[6,1,1]],"tray":{"m":3,"s":1,"p":1},"par":5,"sol":[[1,0,5],[4,1,1],[1,4,2],[2,4,3],[3,4,1]]},
+{"name":"Finale","w":10,"h":8,"map":["......#.#:",".....##...","....#.....","...:......","..........","..........",":.........",".:.:.....#"],"em":[[5,4,3,0],[0,1,1,1],[6,2,1,2]],"tg":[[0,4,5],[9,5,1]],"cr":[[6,6],[3,6]],"rl":[[1,1,1]],"gl":[[2,4,0]],"sw":[[0,2,1,1]],"gt":[[6,5,1]],"tray":{"m":4,"s":1,"p":1},"par":5,"sol":[[0,3,1],[2,3,3],[5,3,7],[6,3,1],[2,5,2]]}
 ];
 const TIPS=[
   'Tap a free square to place a mirror, tap the mirror to turn it. Steer the red beam into the target.',
@@ -259,7 +260,7 @@ const TIPS=[
   '',''
 ];
 Object.assign(TIPS,{
-  39:'New piece: the prism. Glass bends blue light more than red, so a beam fans out: red toward the tip, blue toward the base, green straight on. The prism turns its tip to the left of the incoming beam, so red always turns left and blue right. Three colours that leave on one line merge into white.',
+  39:'New piece: the prism. Glass bends blue light more than red, so a beam crossing the prism fans out: red toward the tip, blue toward the base, green straight on. A beam aimed at the tip or the base goes straight through. Tap a prism to turn it.',
   43:'Coloured glass lets only its own colour through.',
   47:'A colour shifter repaints any beam that passes through it.',
   51:'A relay crystal lit with its own colour shines that colour out of all four sides. Relays can light each other.',
@@ -274,7 +275,7 @@ const MIXC={1:'#ff4a5c',2:'#38e07c',4:'#4a86ff',3:'#ffe14a',5:'#e05cff',6:'#45e6
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let save={stars:{}};try{save=Object.assign(save,JSON.parse(localStorage.getItem('laserlab-save')||'{}'));}catch(e){}
 function persist(){try{localStorage.setItem('laserlab-save',JSON.stringify(save));}catch(e){}}
-let li=0,B,L,P,hist=[],res,won=false,sel=1,lastTurn={m:1,s:3,p:5},hover=-1,drag=null,hintCell=null,hintT=0,winT=0;
+let li=0,B,L,P,hist=[],res,won=false,sel=1,lastTurn={m:1,s:3,p:8},hover=-1,drag=null,hintCell=null,hintT=0,winT=0;
 
 function load(i){
   li=i;L=LEVELS[i];B=build(L);P=new Uint8Array(B.n);hist=[];won=false;hintCell=null;drag=null;
@@ -283,7 +284,7 @@ function load(i){
   $('#lvname').textContent=`${i+1}. ${L.name}`;
   $('#hint').textContent=TIPS[i]||'Every target lit with exactly its colour, every crystal dark.';
   $('#mix').hidden=new Set([...L.em.map(e=>e[3]),...(L.cs||[]).map(e=>e[2])]).size<2&&!(L.pr||L.tray.p);$('#ov').hidden=true;
-  sel=L.tray.m?1:L.tray.s?3:5;update();levelButtons();
+  sel=L.tray.m?1:L.tray.s?3:lastTurn.p;update();levelButtons();
 }
 const used=k=>P.reduce((a,p)=>a+(p&&KIND(p)===k?1:0),0);
 const left=k=>(L.tray[k]||0)-used(k);
@@ -332,7 +333,7 @@ addEventListener('pointermove',e=>{
 addEventListener('pointerup',e=>{
   if(!drag)return;const d=drag;drag=null;const c=cellAt(e);
   if(d.from==='board'){
-    if(!d.moved){const p=P[d.cell];if(p!==5)commit(()=>{P[d.cell]=FLIP[p];lastTurn[kindOf(p)]=FLIP[p];});return;}
+    if(!d.moved){const p=P[d.cell];commit(()=>{P[d.cell]=FLIP[p];lastTurn[kindOf(p)]=FLIP[p];});return;}
     if(c<0)commit(()=>{P[d.cell]=0;});
     else if(c!==d.cell&&placeable(B,c)&&!P[c])commit(()=>{P[c]=P[d.cell];P[d.cell]=0;});
   }else if(d.from==='tray'&&d.moved&&c>=0&&placeable(B,c)&&!P[c])commit(()=>{P[c]=d.p;});
@@ -350,7 +351,7 @@ addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&k==='z'){e.preventDefault();undo();return;}
   if(e.metaKey||e.ctrlKey||won)return;
   if(k==='z')undo();else if(k==='h')hint();
-  else if(k==='1'&&L.tray.m){sel=lastTurn.m;renderTray();}else if(k==='2'&&L.tray.s){sel=lastTurn.s;renderTray();}else if(k==='3'&&L.tray.p){sel=5;renderTray();}
+  else if(k==='1'&&L.tray.m){sel=lastTurn.m;renderTray();}else if(k==='2'&&L.tray.s){sel=lastTurn.s;renderTray();}else if(k==='3'&&L.tray.p){sel=lastTurn.p;renderTray();}
   else if(hover>=0&&P[hover]&&(k==='r'||k===' ')){e.preventDefault();const p=P[hover];commit(()=>{P[hover]=FLIP[p];});}
   else if(hover>=0&&P[hover]&&(k==='backspace'||k==='delete'))commit(()=>{P[hover]=0;});
 });
@@ -360,7 +361,7 @@ function hint(){
   const sol=new Map(L.sol.map(([x,y,p])=>[y*L.w+x,p]));
   for(let i=0;i<B.n;i++)if(P[i]&&!sol.has(i)){hintCell={i,p:0};$('#hint').textContent='This piece is not in the shortest route. Take it back.';hintT=performance.now();return;}
   for(const [i,p] of sol)if(P[i]!==p){hintCell={i,p};hintT=performance.now();
-    $('#hint').textContent=P[i]&&KIND(P[i])===KIND(p)?'Turn this piece.':`Try a ${NAME[KIND(p)].toLowerCase()} here${p===5?'':', turned like this'}.`;return;}
+    $('#hint').textContent=P[i]&&KIND(P[i])===KIND(p)?'Turn this piece.':`Try a ${NAME[KIND(p)].toLowerCase()} here, turned like this.`;return;}
 }
 $('#bUndo').onclick=undo;$('#bHint').onclick=hint;
 $('#bReset').onclick=()=>{if(!won&&P.some(Boolean))commit(()=>P.fill(0));};
@@ -385,12 +386,10 @@ function drawPiece(x,y,p,alpha,bolted,lit=0){
   if(bolted){rr(cx+6,cy+6,S-12,S-12,10);g.fillStyle='#252f45';g.fill();g.fillStyle='#55617a';
     for(const [u,v] of [[13,13],[S-13,13],[13,S-13],[S-13,S-13]]){g.beginPath();g.arc(cx+u,cy+v,3,0,7);g.fill();}}
   g.lineCap='round';
-  if(p===5){
-    // A glass prism, shaded red at its tip and blue at its base. Glass bends blue more than red, so a beam
-    // fans out: red toward the tip, blue toward the base, green straight on. The prism turns to face the
-    // incoming beam with its tip on the beam's left, which is why red turns left and blue right.
-    const d=lit?Math.log2(lit&-lit):0,r=S*.33;
-    g.translate(cx+S/2,cy+S/2);g.rotate(d*Math.PI/2);g.lineJoin='round';
+  if(p>=5){
+    // A glass prism, shaded red at its tip and blue at its base: red bends toward the tip, blue toward the base.
+    const r=S*.33;
+    g.translate(cx+S/2,cy+S/2);g.rotate((p-4)*Math.PI/2);g.lineJoin='round';
     const tri=()=>{g.beginPath();g.moveTo(0,-r);g.lineTo(r*.95,r*.68);g.lineTo(-r*.95,r*.68);g.closePath();};
     const gr=g.createLinearGradient(0,-r,0,r*.68);
     gr.addColorStop(.15,'#ff4a5c');gr.addColorStop(.55,'#38e07c');gr.addColorStop(.95,'#4a86ff');
@@ -502,7 +501,7 @@ function render(now){
     else{rr(X+3,Y+3,S-6,S-6,8);g.fillStyle='#2b3651';g.fill();g.fillStyle='#8f9ab3';for(let k=0;k<4;k++)g.fillRect(X+12+k*(S-24)/3-3,Y+6,6,S-12);}
     g.fillStyle=on?'#8a97ad':'#e9eef7';g.font='700 13px Fredoka, system-ui, sans-serif';g.textAlign='center';g.textBaseline='middle';
     rr(X+S/2-10,Y+S/2-10,20,20,6);g.fillStyle=on?'#141c2c':'#0e1422';g.fill();g.fillStyle=on?'#8a97ad':'#e9eef7';g.fillText(id,X+S/2,Y+S/2+1);g.restore();}
-  for(const [x,y] of L.pr||[])drawPiece(x,y,5,1,true,inDir[y*L.w+x]);
+  for(const [x,y,a] of L.pr||[])drawPiece(x,y,5+a,1,true,inDir[y*L.w+x]);
   // hint ghost
   if(hintCell&&now-hintT<4000){
     const x=hintCell.i%L.w,y=hintCell.i/L.w|0,pulse=.5+.5*Math.sin((now-hintT)/160);
