@@ -259,7 +259,7 @@ const TIPS=[
   '',''
 ];
 Object.assign(TIPS,{
-  39:'New piece: the prism. Red turns left, green goes straight on, blue turns right. White light fans out into all three, and three beams aimed right merge into white.',
+  39:'New piece: the prism. Glass bends blue light more than red, so a beam crossing a wedge fans out: red toward the thin red tip, blue toward the thick blue end, green straight on. All four wedges point the same way round, so red always turns left and blue right. Three colours that leave on one line merge into white.',
   43:'Coloured glass lets only its own colour through.',
   47:'A colour shifter repaints any beam that passes through it.',
   51:'A relay crystal lit with its own colour shines that colour out of all four sides. Relays can light each other.',
@@ -299,7 +299,7 @@ function update(){
 function commit(fn){hist.push(P.slice());fn();hintCell=null;update();}
 
 /* ---------- tray ---------- */
-const ICON={p:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M17 7 L27 25 H7 Z" fill="#cfe3ff" fill-opacity=".25" stroke="#e8f1ff" stroke-width="2" stroke-linejoin="round"/><path d="M10 25 L14 18" stroke="#ff4a5c" stroke-width="2"/><path d="M17 25 V16" stroke="#38e07c" stroke-width="2"/><path d="M24 25 L20 18" stroke="#4a86ff" stroke-width="2"/></svg>',m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
+const ICON={p:'<svg viewBox="0 0 34 34"><defs><linearGradient id="pw" x1="0" y1="0" x2="0" y2="1"><stop offset=".4" stop-color="#ff4a5c"/><stop offset=".6" stop-color="#38e07c"/><stop offset=".8" stop-color="#4a86ff"/></linearGradient></defs><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M4 18 H17" stroke="#fff" stroke-width="2.2"/><path d="M17 18 V5" stroke="#ff4a5c" stroke-width="2.2"/><path d="M17 18 H30" stroke="#38e07c" stroke-width="2.2"/><path d="M17 18 V31" stroke="#4a86ff" stroke-width="2.2"/><path d="M9 7 V26 H15 Z" fill="url(#pw)" fill-opacity=".85" stroke="#e8f1ff" stroke-width="1.6" stroke-linejoin="round"/></svg>',m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
   s:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#7fe3ff" stroke-opacity=".45" stroke-width="7" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#d8f7ff" stroke-width="1.8" stroke-linecap="round"/></svg>'};
 function renderTray(){
   const t=$('#tray');t.innerHTML='';
@@ -378,17 +378,24 @@ function showWin(){
 
 /* ---------- drawing ---------- */
 function rr(x,y,w,h,r){g.beginPath();g.roundRect(x,y,w,h,r);}
-function drawPiece(x,y,p,alpha,bolted){
+function drawPiece(x,y,p,alpha,bolted,lit=0){
   const a=.2*S,b=.8*S,cx=x*S,cy=y*S;
   const [x1,y1,x2,y2]=p===1||p===3?[cx+a,cy+b,cx+b,cy+a]:[cx+a,cy+a,cx+b,cy+b];
   g.save();g.globalAlpha=alpha;
   if(bolted){rr(cx+6,cy+6,S-12,S-12,10);g.fillStyle='#252f45';g.fill();g.fillStyle='#55617a';
     for(const [u,v] of [[13,13],[S-13,13],[13,S-13],[S-13,S-13]]){g.beginPath();g.arc(cx+u,cy+v,3,0,7);g.fill();}}
   g.lineCap='round';
-  if(p===5){const mx=cx+S/2,my=cy+S/2,r=S*.3;
-    g.beginPath();g.moveTo(mx,my-r);g.lineTo(mx+r*.95,my+r*.68);g.lineTo(mx-r*.95,my+r*.68);g.closePath();
-    g.fillStyle='rgba(207,227,255,.22)';g.fill();g.strokeStyle='#e8f1ff';g.lineWidth=2.4;g.lineJoin='round';g.stroke();
-    [['#ff4a5c',-1],['#38e07c',0],['#4a86ff',1]].forEach(([c,k])=>{g.strokeStyle=c;g.lineWidth=2.2;g.beginPath();g.moveTo(mx+k*r*.18,my+r*.1);g.lineTo(mx+k*r*.5,my+r*.62);g.stroke();});
+  if(p===5){
+    // Four glass wedges in a pinwheel, each shaded red at its thin tip and blue at its thick end.
+    // A beam crosses the wedge on the side it comes in from: glass bends blue more than red, so red
+    // leans toward the tip and blue toward the thick end. Every wedge has its tip on the beam's left.
+    const r=S*.36;g.translate(cx+S/2,cy+S/2);g.lineJoin='round';
+    for(let k=0;k<4;k++){g.save();g.rotate(k*Math.PI/2);
+      const on=lit>>k&1,gr=g.createLinearGradient(0,-r*.95,0,r*.55);
+      gr.addColorStop(.4,'#ff4a5c');gr.addColorStop(.6,'#38e07c');gr.addColorStop(.8,'#4a86ff');
+      g.beginPath();g.moveTo(-r,-r*.95);g.lineTo(-r,r*.55);g.lineTo(-r*.3,r*.55);g.closePath();
+      g.globalAlpha=alpha*(on?.95:.6);g.fillStyle=gr;g.fill();
+      g.globalAlpha=alpha;g.strokeStyle=on?'#ffffff':'#c9d6ee';g.lineWidth=on?2.2:1.6;g.stroke();g.restore();}
   }else if(p<=2){
     g.strokeStyle='#5d6a85';g.lineWidth=9;g.beginPath();g.moveTo(x1+2,y1+3);g.lineTo(x2+2,y2+3);g.stroke();
     g.strokeStyle='#e4ecf8';g.lineWidth=7;g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();
@@ -427,11 +434,13 @@ function render(now){
     }
   }
   g.restore();
-  // pieces
+  // pieces; a prism lights the wedge on each side a beam comes in through
+  const inDir=new Uint8Array(B.n);
+  for(let j=0;j<segs.length;j+=5)if(segs[j+4]===1){const d=segs[j+2];inDir[(segs[j+1]+DY[d])*L.w+segs[j]+DX[d]]|=1<<d;}
   for(let i=0;i<B.n;i++){
     const x=i%L.w,y=i/L.w|0;
     if(B.fixed[i])drawPiece(x,y,B.fixed[i],1,true);
-    if(P[i])drawPiece(x,y,P[i],drag&&drag.from==='board'&&drag.cell===i&&drag.moved?.3:1,false);
+    if(P[i])drawPiece(x,y,P[i],drag&&drag.from==='board'&&drag.cell===i&&drag.moved?.3:1,false,inDir[i]);
   }
   // emitters
   for(const [x,y,d,c] of L.em){
@@ -489,7 +498,7 @@ function render(now){
     else{rr(X+3,Y+3,S-6,S-6,8);g.fillStyle='#2b3651';g.fill();g.fillStyle='#8f9ab3';for(let k=0;k<4;k++)g.fillRect(X+12+k*(S-24)/3-3,Y+6,6,S-12);}
     g.fillStyle=on?'#8a97ad':'#e9eef7';g.font='700 13px Fredoka, system-ui, sans-serif';g.textAlign='center';g.textBaseline='middle';
     rr(X+S/2-10,Y+S/2-10,20,20,6);g.fillStyle=on?'#141c2c':'#0e1422';g.fill();g.fillStyle=on?'#8a97ad':'#e9eef7';g.fillText(id,X+S/2,Y+S/2+1);g.restore();}
-  for(const [x,y] of L.pr||[])drawPiece(x,y,5,1,true);
+  for(const [x,y] of L.pr||[])drawPiece(x,y,5,1,true,inDir[y*L.w+x]);
   // hint ghost
   if(hintCell&&now-hintT<4000){
     const x=hintCell.i%L.w,y=hintCell.i/L.w|0,pulse=.5+.5*Math.sin((now-hintT)/160);
