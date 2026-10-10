@@ -71,6 +71,8 @@ canvas#board{display:block;width:100%;height:auto;touch-action:none;cursor:point
 @media (prefers-reduced-motion:reduce){.stars span.on{animation:none}}
 @media (max-width:560px){h1{font-size:24px}.piece svg{width:28px;height:28px}}
 </style>
+<script>if (/[?&]app\b/.test(location.search)) document.documentElement.classList.add("as-app"); // opened from its /Applications launcher</script>
+<style>.as-app .back{display:none}</style>
 </head>
 <body>
 <div class="wrap">
