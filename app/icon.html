@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Laser Lab icon</title>
+<style>html,body{margin:0;background:transparent}svg{display:block;width:1024px;height:1024px}</style></head>
+<body><div id="out"></div>
+<script>
+/* The Laser Lab app icon: a macOS-style rounded square (824px tile, 100px margin) drawn as SVG. */
+const tile=(bg,inner)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="c"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+<linearGradient id="sh" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+<g clip-path="url(#c)">${bg}${inner}<rect x="100" y="100" width="824" height="824" fill="url(#sh)"/></g></svg>`;
+const fill=(c1,c2)=>`<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" fill="url(#bg)"/>`;
+const ICON=tile(fill('#1a2236','#090d16'),`<defs><filter id="gl" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="16"/></filter></defs>
+    ${[0,1,2,3,4,5,6].map(i=>`<path d="M${180+i*110} 100 V924 M100 ${180+i*110} H924" stroke="#141c2c" stroke-width="10"/>`).join('')}
+    <g stroke-linecap="round" fill="none"><path d="M260 620 H900 M620 620 V330" stroke="#ff4a5c" stroke-width="44" filter="url(#gl)"/><path d="M620 800 V330 M620 620 H900" stroke="#4a86ff" stroke-width="44" filter="url(#gl)" opacity=".9"/>
+      <path d="M260 620 H620" stroke="#ffc2c9" stroke-width="14"/><path d="M620 800 V620" stroke="#c6d7ff" stroke-width="14"/><path d="M620 620 V330 M620 620 H900" stroke="#f3c9ff" stroke-width="14"/></g>
+    <rect x="160" y="560" width="120" height="120" rx="26" fill="#3a4663"/><circle cx="220" cy="620" r="30" fill="#ff4a5c"/>
+    <rect x="560" y="780" width="120" height="120" rx="26" fill="#3a4663"/><circle cx="620" cy="840" r="30" fill="#4a86ff"/>
+    <path d="M550 690 L690 550" stroke="#7fe3ff" stroke-opacity=".4" stroke-width="40" stroke-linecap="round"/><path d="M550 690 L690 550" stroke="#d8f7ff" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="620" cy="250" r="84" fill="#1b2335"/><circle cx="620" cy="250" r="72" fill="none" stroke="#e05cff" stroke-width="26" filter="url(#gl)"/><circle cx="620" cy="250" r="72" fill="none" stroke="#e05cff" stroke-width="22"/><circle cx="620" cy="250" r="38" fill="#e05cff"/>`);
+document.getElementById('out').innerHTML=ICON;
+</script></body></html>

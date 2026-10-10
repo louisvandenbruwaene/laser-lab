@@ -25,8 +25,6 @@ body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:1
 .wrap>*{min-width:0}
 .top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px}
 .title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;min-width:0}
-.back{color:var(--muted);text-decoration:none;font-family:var(--f-display);font-size:14px;width:100%}
-.back:hover{color:var(--accent)}
 h1{font-family:var(--f-display);font-weight:700;font-size:30px;margin:0;letter-spacing:-.01em}
 #lvname{font-family:var(--f-display);font-weight:500;font-size:18px;color:var(--muted)}
 .pick{display:grid;gap:6px;min-width:0}
@@ -71,13 +69,11 @@ canvas#board{display:block;width:100%;height:auto;touch-action:none;cursor:point
 @media (prefers-reduced-motion:reduce){.stars span.on{animation:none}}
 @media (max-width:560px){h1{font-size:24px}.piece svg{width:28px;height:28px}}
 </style>
-<script>if (/[?&]app\b/.test(location.search)) document.documentElement.classList.add("as-app"); // opened from its /Applications launcher</script>
-<style>.as-app .back{display:none}</style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
-    <div class="title"><a class="back" href="../index.html">← All games</a><h1>Laser Lab</h1><span id="lvname"></span></div>
+    <div class="title"><h1>Laser Lab</h1><span id="lvname"></span></div>
     <div class="pick"><div class="pages" id="pages"></div><div class="levels" id="levels"></div></div>
   </div>
   <div class="stage" id="stage">
