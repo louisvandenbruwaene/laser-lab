@@ -93,7 +93,7 @@ canvas#board{display:block;width:100%;height:auto;touch-action:none;cursor:point
   </div>
   <div class="bar">
     <p id="hint"></p>
-    <div class="group"><button id="bHint">Hint</button><button id="bUndo">Undo</button><button id="bReset">Reset</button></div>
+    <div class="group"><button id="bMute" title="Sound (M)">Sound on</button><button id="bHint">Hint</button><button id="bUndo">Undo</button><button id="bReset">Reset</button></div>
   </div>
   <div class="mix" id="mix">Light adds up:
     <span><i style="background:#ff4a5c"></i>+<i style="background:#38e07c"></i>= <i style="background:#ffe14a"></i></span>
@@ -314,12 +314,29 @@ const cv=$('#board'),g=cv.getContext('2d'),DPR=Math.min(2,window.devicePixelRati
 const RGB=['#ff4a5c','#38e07c','#4a86ff'];
 const MIXC={1:'#ff4a5c',2:'#38e07c',4:'#4a86ff',3:'#ffe14a',5:'#e05cff',6:'#45e6ff',7:'#ffffff'};
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-let save={stars:{}};try{save=Object.assign(save,JSON.parse(localStorage.getItem('laserlab-save')||'{}'));}catch(e){}
+let save={stars:{},muted:false,last:0};try{save=Object.assign(save,JSON.parse(localStorage.getItem('laserlab-save')||'{}'));}catch(e){}
 function persist(){try{localStorage.setItem('laserlab-save',JSON.stringify(save));}catch(e){}}
-let li=0,B,L,P,hist=[],res,won=false,sel=1,lastTurn={m:1,s:3,p:8},hover=-1,drag=null,hintCell=null,hintT=0,winT=0;
+/* sound: tiny synth, no audio files */
+let ac=null;
+function tone(f,dur,{type='sine',vol=.1,to=f,delay=0}={}){
+  if(save.muted)return;try{ac=ac||new AudioContext();const t0=ac.currentTime+delay,o=ac.createOscillator(),v=ac.createGain();
+    o.type=type;o.frequency.setValueAtTime(f,t0);o.frequency.exponentialRampToValueAtTime(to,t0+dur);
+    v.gain.setValueAtTime(vol,t0);v.gain.exponentialRampToValueAtTime(.001,t0+dur);o.connect(v).connect(ac.destination);o.start(t0);o.stop(t0+dur);}catch(e){}
+}
+const SFX={
+  place:()=>tone(420,.08,{type:'triangle',to:620,vol:.08}),
+  turn:()=>tone(900,.04,{type:'square',vol:.03}),
+  take:()=>tone(500,.09,{type:'triangle',to:300,vol:.07}),
+  lit:k=>tone(523*2**(k/12),.3,{type:'sine',vol:.1}),
+  crack:()=>{tone(2200,.08,{type:'square',to:900,vol:.04});tone(160,.15,{type:'sawtooth',to:90,vol:.05});},
+  win:()=>[523,659,784,1047,1319].forEach((f,i)=>tone(f,.5,{type:'triangle',vol:.08,delay:i*.08})),
+};
+function setMute(m){save.muted=m;persist();$('#bMute').textContent=m?'Sound off':'Sound on';}
+let li=0,B,L,P,hist=[],res,won=false,litOk=null,rings=[],sel=1,lastTurn={m:1,s:3,p:8},hover=-1,drag=null,hintCell=null,hintT=0,winT=0;
 
 function load(i){
-  li=i;L=LEVELS[i];B=build(L);P=new Uint8Array(B.n);hist=[];won=false;hintCell=null;drag=null;
+  li=i;L=LEVELS[i];B=build(L);P=new Uint8Array(B.n);hist=[];won=false;hintCell=null;drag=null;litOk=null;rings=[];
+  if(save.last!==i){save.last=i;persist();}
   cv.width=L.w*S*DPR;cv.height=L.h*S*DPR;
   $('#stage').style.maxWidth=`min(100%, ${(L.w/L.h*62).toFixed(2)}vh)`;
   $('#lvname').textContent=`${i+1}. ${L.name}`;
@@ -336,9 +353,14 @@ function update(){
   const n=P.reduce((a,p)=>a+(p?1:0),0);
   $('#sUsed').textContent=n;$('#sPar').textContent=L.par;
   renderTray();
-  if(!won&&solved(B,res.hit)){won=true;winT=performance.now();setTimeout(showWin,reduce?150:750);}
+  const ok=L.tg.map(([x,y,m])=>res.hit[y*L.w+x]===m),cracked=(L.cr||[]).map(([x,y])=>!!res.hit[y*L.w+x]);
+  if(litOk){let k=0;ok.forEach((o,j)=>{if(o&&!litOk.ok[j]){const [x,y,m]=L.tg[j];rings.push({x,y,col:MIXC[m],t0:performance.now()});setTimeout(()=>SFX.lit(4*k+ok.filter(Boolean).length*2),k*70);k++;}});
+    if(cracked.some((c,j)=>c&&!litOk.cracked[j]))SFX.crack();}
+  litOk={ok,cracked};
+  if(!won&&solved(B,res.hit)){won=true;winT=performance.now();setTimeout(SFX.win,250);setTimeout(showWin,reduce?150:750);}
 }
-function commit(fn){hist.push(P.slice());fn();hintCell=null;update();}
+function commit(fn){const before=P.slice(),nb=before.filter(Boolean).length;hist.push(before);fn();hintCell=null;
+  const n=P.filter(Boolean).length;(n>nb?SFX.place:n<nb?SFX.take:P.some((p,i)=>p!==before[i]&&KIND(p)===KIND(before[i])&&before[i])?SFX.turn:SFX.place)();update();}
 
 /* ---------- tray ---------- */
 const ICON={p:'<svg viewBox="0 0 34 34"><defs><linearGradient id="pw" x1="0" y1="0" x2="0" y2="1"><stop offset=".15" stop-color="#ff4a5c"/><stop offset=".55" stop-color="#38e07c"/><stop offset=".95" stop-color="#4a86ff"/></linearGradient></defs><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M4 18 H17" stroke="#fff" stroke-width="2.2"/><path d="M17 18 V5" stroke="#ff4a5c" stroke-width="2.2"/><path d="M17 18 H30" stroke="#38e07c" stroke-width="2.2"/><path d="M17 18 V31" stroke="#4a86ff" stroke-width="2.2"/><path d="M17 8 L25.5 24 H8.5 Z" fill="url(#pw)" fill-opacity=".6" stroke="#eef4ff" stroke-width="1.8" stroke-linejoin="round"/></svg>',m:'<svg viewBox="0 0 34 34"><rect x="2" y="2" width="30" height="30" rx="7" fill="#0e1422"/><path d="M8 26 26 8" stroke="#dfe7f5" stroke-width="5" stroke-linecap="round"/><path d="M8 26 26 8" stroke="#8796b3" stroke-width="1.6" stroke-linecap="round" transform="translate(2.2 2.2)"/></svg>',
@@ -398,12 +420,12 @@ addEventListener('keydown',e=>{
   if(e.repeat)return;const k=e.key.toLowerCase();
   if((e.metaKey||e.ctrlKey)&&k==='z'){e.preventDefault();undo();return;}
   if(e.metaKey||e.ctrlKey||won)return;
-  if(k==='z')undo();else if(k==='h')hint();
+  if(k==='z')undo();else if(k==='h')hint();else if(k==='m')setMute(!save.muted);
   else if(k==='1'&&L.tray.m){sel=lastTurn.m;renderTray();}else if(k==='2'&&L.tray.s){sel=lastTurn.s;renderTray();}else if(k==='3'&&L.tray.p){sel=lastTurn.p;renderTray();}
   else if(hover>=0&&P[hover]&&(k==='r'||k===' ')){e.preventDefault();const p=P[hover];commit(()=>{P[hover]=FLIP[p];});}
   else if(hover>=0&&P[hover]&&(k==='backspace'||k==='delete'))commit(()=>{P[hover]=0;});
 });
-function undo(){if(won||!hist.length)return;P=hist.pop();hintCell=null;update();}
+function undo(){if(won||!hist.length)return;P=hist.pop();hintCell=null;SFX.take();update();}
 function hint(){
   if(won)return;
   const sol=new Map(L.sol.map(([x,y,p])=>[y*L.w+x,p]));
@@ -411,7 +433,7 @@ function hint(){
   for(const [i,p] of sol)if(P[i]!==p){hintCell={i,p};hintT=performance.now();
     $('#hint').textContent=P[i]&&KIND(P[i])===KIND(p)?'Turn this piece.':`Try a ${NAME[KIND(p)].toLowerCase()} here, turned like this.`;return;}
 }
-$('#bUndo').onclick=undo;$('#bHint').onclick=hint;
+$('#bUndo').onclick=undo;$('#bHint').onclick=hint;$('#bMute').onclick=()=>setMute(!save.muted);
 $('#bReset').onclick=()=>{if(!won&&P.some(Boolean))commit(()=>P.fill(0));};
 $('#ovRetry').onclick=()=>load(li);$('#ovNext').onclick=()=>load(Math.min(LEVELS.length-1,li+1));
 
@@ -513,6 +535,9 @@ function render(now){
     if(m&(m-1)){const parts=[0,1,2].filter(k=>m>>k&1);parts.forEach((k,j)=>{g.fillStyle=RGB[k];g.beginPath();g.arc(cx+(j-(parts.length-1)/2)*11,cy+S*.44,4,0,7);g.fill();});}
     g.restore();
   }
+  // a ring bursts from each target as it lights
+  rings=rings.filter(q=>now-q.t0<600);
+  if(!reduce)for(const q of rings){const k=(now-q.t0)/600;g.strokeStyle=q.col;g.globalAlpha=1-k;g.lineWidth=4*(1-k)+1;g.beginPath();g.arc((q.x+.5)*S,(q.y+.5)*S,S*(.33+.5*k),0,7);g.stroke();g.globalAlpha=1;}
   // crystals
   for(const [x,y] of L.cr||[]){
     const i=y*L.w+x,h=res.hit[i],cx=(x+.5)*S,cy=(y+.5)*S,r=S*.3,j=h&&!reduce?Math.sin(t*40)*1.5:0;
@@ -566,7 +591,7 @@ function render(now){
   if(won&&!reduce){const k=(now-winT)/700;if(k<1){g.fillStyle=`rgba(255,255,255,${.18*(1-k)})`;g.fillRect(0,0,W,H);}}
   requestAnimationFrame(render);
 }
-load(0);requestAnimationFrame(render);
+setMute(save.muted);load(Math.min(save.last||0,LEVELS.length-1));requestAnimationFrame(render);
 </script>
 </body>
 </html>
