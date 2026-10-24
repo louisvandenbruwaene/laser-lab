@@ -1,5 +1,11 @@
 # Laser Lab
 
+### ▶ [Play Laser Lab in your browser](https://louisvandenbruwaene.github.io/laser-lab/)
+
+No install, no account: open the link and play. Tap a free square to place a mirror, tap it again to turn it, and steer each beam into its target.
+
+[![Laser Lab: the first level with a red laser and its target](screenshot.png)](https://louisvandenbruwaene.github.io/laser-lab/)
+
 Laser Lab: bend coloured lasers with mirrors and splitters onto matching targets. One self-contained HTML file, no build step: open [`index.html`](index.html).
 
 ## Play on this Mac
