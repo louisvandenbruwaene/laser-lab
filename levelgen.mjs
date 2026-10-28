@@ -1,7 +1,8 @@
 // Laser Lab level generator: plants a solution on a random bench, then proves with an exhaustive solver that
 // it is the only way to light the targets with that few pieces. Crystals are added where other routes run until
 // the planted one is the unique shortest solution.
-//   node laser/levelgen.mjs <seed> <tier 0..1> <count>   -> prints one level JSON per line
+//   node levelgen.mjs <seed> <tier 0..1> <count>   -> prints one level JSON per line
+//   node levelgen.mjs check | alts                 -> see the check section at the bottom
 import fs from 'fs';
 const html = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8');
 const sim = html.match(/<script id="sim">([\s\S]*?)<\/script>/)[1];
@@ -305,7 +306,45 @@ function refine(L, ref, kmin, maxNodes) {
   return F(14);
 }
 
+/* ---------- check: prove every level in index.html is solvable and its hint data complete ---------- */
+// For each level: the stored solution lights it within the tray, nothing does it with fewer pieces, and
+// sol + alt list every shortest solution (the in-game hint follows whichever one the player is closest to).
+//   node levelgen.mjs check [first] [last]   (1-based, inclusive)   -> one line per level, exit 1 on a failure
+//   node levelgen.mjs alts  [first] [last]                           -> {"level":n,"alt":[...]} for levels with several
+const LEVELS_IN_GAME = () => JSON.parse(html.match(/const LEVELS=(\[[\s\S]*?\n\]);/)[1]);
+const asPlacements = (L, P) => [...P].map((p, i) => p ? [i % L.w, i / L.w | 0, p] : null).filter(Boolean);
+const placementKey = list => JSON.stringify([...list].sort((a, b) => a[1] - b[1] || a[0] - b[0]));
+function checkLevel(L) {
+  const B = build(L), P = new Uint8Array(B.n), used = { m: 0, s: 0, p: 0 };
+  for (const [x, y, p] of L.sol) { P[y * L.w + x] = p; used[p <= 2 ? 'm' : p <= 4 ? 's' : 'p']++; }
+  const solutionWorks = solved(B, trace(B, P, false).hit) && L.sol.length === L.par
+    && ['m', 's', 'p'].every(k => used[k] <= (L.tray[k] || 0));
+  const search = solve(L, L.par, 1e8, 64);
+  const shortest = new Set(search.sols.map(S => placementKey(asPlacements(L, S))));
+  const stored = new Set([L.sol, ...(L.alt || [])].map(placementKey));
+  const hintDataComplete = shortest.size === stored.size && [...shortest].every(k => stored.has(k));
+  return { ok: solutionWorks && !search.aborted && search.best === L.par && hintDataComplete,
+    solutionWorks, best: search.best, count: search.count, aborted: search.aborted, hintDataComplete, search };
+}
+
 const [, , seedArg = '1', tierArg = '0.5', countArg = '1', nodesArg = '3000000'] = process.argv;
+if (import.meta.url === `file://${process.argv[1]}` && (seedArg === 'check' || seedArg === 'alts')) {
+  const levels = LEVELS_IN_GAME(), first = +tierArg || 1, last = +countArg || levels.length;
+  let failures = 0;
+  for (let n = first; n <= last; n++) {
+    const L = levels[n - 1], t0 = Date.now(), r = checkLevel(L);
+    if (seedArg === 'alts') {
+      const alt = r.search.sols.map(S => asPlacements(L, S)).filter(a => placementKey(a) !== placementKey(L.sol));
+      if (alt.length) console.log(JSON.stringify({ level: n, alt }));
+      continue;
+    }
+    if (!r.ok) failures++;
+    console.log(`${n} ${L.name}: ${r.ok ? 'ok' : 'FAIL'} par ${L.par} best ${r.best} shortest ${r.count}`
+      + `${r.solutionWorks ? '' : ' (stored solution broken)'}${r.hintDataComplete ? '' : ' (alt incomplete)'}`
+      + `${r.aborted ? ' (search aborted)' : ''} ${Date.now() - t0}ms`);
+  }
+  process.exit(failures ? 1 : 0);
+}
 if (import.meta.url === `file://${process.argv[1]}`) {
   seed = +seedArg; const t = +tierArg;
   let made = 0;
